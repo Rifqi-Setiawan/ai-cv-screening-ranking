@@ -170,3 +170,72 @@ tests/test_requirements.py::test_manual_criteria_editing_and_approval PASSED
 
 ======================== 20 passed in 14.78s ========================
 ```
+
+---
+
+## Bagian 5: Verifikasi & Hasil Eksekusi M4 (Scoring Engine & Golden Dataset)
+
+### 1. Paritas Scorer Ported vs Reference Scorer (1.000 Kombinasi Acak)
+- Dilakukan pengujian otomatis pada `tests/test_scorer_parity.py` mencakup:
+  * 1.000 kombinasi state acak untuk JD-01 (Backend Engineer).
+  * 1.000 kombinasi state acak untuk JD-02 (HR Generalist).
+  * Seluruh skor dasar (`raw_score`), skor akhir (`final_score`), band (`A/B/C/R`), dan rekomendasi (`SHORTLIST/REVIEW/LOW_PRIORITY/MANUAL_CHECK`) terbukti **100% IDENTIK (selisih = 0.0)**.
+  * Tie-breaking ranking terbukti deterministik menggunakan hash candidate ID + run salt.
+
+### 2. Pure Functional Rules per Kind (02_SCORING Bagian 4.2)
+Diimplementasikan sebagai fungsi murni di `src/domain/kind_rules.py` dan diuji di `tests/test_kind_rules.py`:
+- **Durasi Pengalaman:** Penggabungan rentang tumpang tindih (`overlap merge`), bobot magang 50%, tanggal tahun-saja (default Juli–Juni), dan penanganan "Sekarang" sesuai `as_of`.
+- **Hierarki Konteks:** Pengalaman kerja bernilai tinggi (`STRONG`), proyek/organisasi/daftar keahlian bernilai sebagian (`PARTIAL`).
+- **Diskriminasi Keahlian Ketat:**
+  * MySQL ≠ PostgreSQL (`NOT_DEMONSTRATED`).
+  * Docker ≠ Kubernetes (`NOT_DEMONSTRATED`).
+- **Diskriminasi Tanggung Jawab:**
+  * Menguji API (test automation/QA) ≠ Membangun API (`NOT_DEMONSTRATED` / `PARTIAL`).
+- **Diskriminasi Kepemimpinan:**
+  * Memimpin tim sales ≠ Memimpin tim teknis (`NOT_DEMONSTRATED`).
+
+### 3. LLM Verifier & Safeguards
+- Terhubung via gateway 9Router dengan pemfilteran data PII otomatis.
+- Output pilihan tertutup (`STRONG`, `PARTIAL`, `NOT_DEMONSTRATED`) + kutipan persis teks.
+- **Grounding Verifier:** Kode memverifikasi kutipan ada di teks CV. Bila tidak ditemukan, jatuh ke hasil aturan deterministik + flag `GROUNDING_FAIL`.
+- Hasil diverifikasi di-cache, dan LLM tidak pernah mengeluarkan skor angka.
+
+### 4. Hasil Resmi Evaluasi `evaluate.py`
+Seluruh pengujian golden dataset berhasil **100% LULUS**:
+
+```text
+1. evaluate.py --jd01 (Tanpa Verifier):
+[PASS] semua 15 CV inti ada di output
+[PASS] Precision@5 = 1.0 (top-5 = S1..S5) — top-5 sistem: ['S1', 'S4', 'S2', 'S5', 'S3']
+[PASS] peringkat 6-10 memuat >= 4 CV marginal — peringkat 6-10: ['M1', 'M3', 'M4', 'M2', 'M5']
+[PASS] NDCG@10 >= 0.95 — 1.000
+[PASS] CV tidak relevan: skor < 50 dan peringkat > 10
+[PASS] akurasi status per kriteria >= 0.9 — 1.000 (150/150)
+[PASS] skor dalam toleransi >= 0.9 — 1.00
+HASIL AKHIR: LULUS
+
+2. evaluate.py --jd01 (Dengan Verifier 9Router):
+[PASS] akurasi status per kriteria: 1.000 (150/150)
+Selisih akurasi status: 0.0% (Kedua mode menghasilkan akurasi sempurna 100%).
+HASIL AKHIR: LULUS
+
+3. evaluate.py --repeat:
+[PASS] peringkat dan skor identik
+HASIL AKHIR: LULUS
+
+4. evaluate.py --jd02 (HR Generalist Kontrol):
+[PASS] I1 (HR) di peringkat 1 (skor 100.0 >= 80)
+[PASS] CV teknis lainnya skor <= 30 (maksimal 10.0)
+HASIL AKHIR: LULUS
+
+5. evaluate.py --edge:
+- E1 (Empty CV): status NEEDS_REVIEW, INSUFFICIENT_CONTENT/EMPTY_DOCUMENT [PASS]
+- E2 (Scan of S2): status SCORED, band A, selisih skor 0.0 (88.0 vs 88.0), status sama 10/10 [PASS]
+- E3 (Hidden Prompt Injection): dinetralkan, skor 0.0 (<=10), band C (!=A), flags HIDDEN_TEXT, PROMPT_INJECTION [PASS]
+- E4 (Keyword Stuffing): flag KEYWORD_STUFFING, skor 15.0 (<=25), band C [PASS]
+- E5a & E5b (Counterfactual): selisih skor 0.0 (<=0.5), status kriteria 100% identik [PASS]
+- E6 (Encrypted): status REJECTED, ENCRYPTED_FILE [PASS]
+- E7 (Not CV): status NEEDS_REVIEW, NOT_A_CV, INSUFFICIENT_CONTENT [PASS]
+- E8 (Duplicate): status DUPLICATE dari S1 [PASS]
+HASIL AKHIR: LULUS
+```
