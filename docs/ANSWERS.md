@@ -301,3 +301,45 @@ HASIL AKHIR: LULUS
    - Bersih 100% dari kata "tidak menguasai" (diganti menjadi "Tidak tercantum di CV" / "Belum terbukti di CV").
 4. **Verifikasi Playwright E2E Test:**
    - Pengujian otomatis end-to-end pada `tests/test_ui_flow.py` berhasil **LULUS 100%** (32/32 tests green di suite pytest).
+
+---
+
+## Bagian 9: Hasil Penyelesaian Milestone M6 (Hardening & Ketahanan Operasional)
+
+1. **Penghapusan Permanen Data Kandidat (GDPR Compliance):**
+   - Endpoint `DELETE /api/v1/candidates/{candidate_id}`:
+     * Menghapus seluruh identitas (`candidate_identities`), keahlian (`skill_mentions`), profil (`candidate_profiles`), potongan teks & vektor (`profile_chunks`), serta dokumen fisik di disk vault.
+     * Membersihkan cache verifier dari data kandidat.
+     * Meninggalkan tombstone anonim di run lama (`status = 'DELETED'`, `flags = ['TOMBSTONE_DELETED']`, bukti diganti `[DELETED_PER_GDPR]`).
+     * Tercatat di `audit_logs` (`action = 'CANDIDATE_DELETE'`).
+
+2. **Hak Keberatan Kandidat / Dispute (`MANUAL_ONLY`):**
+   - Endpoint `POST /api/v1/candidates/{candidate_id}/object`:
+     * Mengubah status evaluasi menjadi `MANUAL_ONLY` dan band menjadi `R` (`MANUAL_CHECK`).
+     * Menjamin kandidat yang mengajukan keberatan wajib ditinjau langsung oleh manusia tanpa keputusan otomatis kode/AI.
+     * Tercatat di `audit_logs` (`action = 'CANDIDATE_OBJECTION'`).
+
+3. **Rate Limiting:**
+   - Middleware sliding window di `src/api/middleware/rate_limiter.py` melindungi endpoint upload dan AI dari banjir request.
+
+4. **Cadangan Terjadwal & Uji Restore (Disaster Recovery):**
+   - Skrip `scripts/backup.sh` mencadangkan database PostgreSQL (`pg_dump`) dan vault fisik (`tar.gz`) lengkap dengan `SHA256SUMS.txt`.
+   - Skrip `scripts/restore.sh` secara otomatis memvalidasi checksum dan merestorasi data ke database uji terisolasi `cv_screening_restore_test`. Hasil pengujian membuktikan seluruh tabel kembali 100% utuh.
+
+5. **Pemantauan Metrik Prometheus (`GET /metrics`):**
+   - Mengekspos metrik throughput CV/jam, distribusi kegagalan per alasan, latensi tiap tahap pipeline, total panggilan & token LLM, estimasi biaya, dan efisiensi cache hit.
+
+6. **Hasil Load Test (300 Kandidat × 5 Screening Run Paralel):**
+   - 5 proses screening konkuren dieksekusi simultan terhadap 300 kandidat (total 1.500 evaluasi).
+   - **Waktu Total 5 Run:** **0.803 detik**.
+   - **Rata-rata Waktu per Run:** **0.699 detik** (Target spesifikasi: `< 10 detik` $\rightarrow$ **LULUS telak 14x lebih cepat**).
+   - **Throughput Scoring:** **1.868,5 evaluasi / detik** di CPU VPS tanpa lonjakan memori atau OOM.
+
+7. **Dokumentasi & Runbook Operasional:**
+   - Dibuat panduan komprehensif di `docs/DEPLOYMENT_AND_RUNBOOK.md` mencakup SOP service restart, systemd unit files, restore bencana, penggantian model embedding/LLM, dan pemantauan Prometheus.
+
+8. **Kualitas Kode & Pengujian Akhir:**
+   - **Pytest:** **34 passed in 89.00s (100% green)**.
+   - **Ruff:** **All checks passed!**
+   - **Mypy:** **Success: no issues found in 41 source files**.
+   - **Evaluator Golden Dataset:** `evaluate.py --jd01`, `--repeat`, `--jd02`, `--edge` seluruhnya **100% LULUS**.
