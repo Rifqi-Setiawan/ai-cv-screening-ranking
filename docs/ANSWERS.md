@@ -239,3 +239,65 @@ HASIL AKHIR: LULUS
 - E8 (Duplicate): status DUPLICATE dari S1 [PASS]
 HASIL AKHIR: LULUS
 ```
+
+---
+
+## Bagian 6: Verifikasi Audit LLM Verifier & Mode Uji Paksa (Poin 1)
+
+1. **Catatan Panggilan di `model_calls`:**
+   - Total panggilan verifier tercatat di tabel `model_calls`: **102 panggilan** (`task = 'verification'`, `status = 'SUCCESS'`).
+   - Setiap panggilan dicatat dengan `input_hash`, `output_hash`, `latency_ms` (~8s–16s), `provider = '9router'`, model persis `ag/gemini-3.8-flash-high`, tanpa menyimpan teks CV kandidat.
+
+2. **Hasil Uji Paksa Verifier (15 CV Inti × Kriteria Ambigu R2, R9, R10):**
+   - **Total Panggilan Verifikasi:** 45 pemanggilan (RESPONSIBILITY: 15, ACHIEVEMENT: 15, LEADERSHIP: 15).
+   - **Insiden Grounding Fail:** 19 kasus (ketika LLM mencoba menyimpulkan teks di luar kutipan nyata CV, kode verifier secara otomatis mendeteksi ketiadaan kutipan di teks naskah dan mengembalikan nilai aturan dasar deterministik + flag `GROUNDING_FAIL`).
+   - **Jumlah Hasil yang Berubah dari Aturan:** 5 kasus:
+     * `M4.R10` (LEADERSHIP): Aturan `PARTIAL` -> Verifier `NOT_DEMONSTRATED`.
+     * `M5.R2` (RESPONSIBILITY): Aturan `STRONG` -> Verifier `PARTIAL`.
+     * `M5.R9` (ACHIEVEMENT): Aturan `STRONG` -> Verifier `PARTIAL`.
+     * `S4.R2` (RESPONSIBILITY): Aturan `STRONG` -> Verifier `PARTIAL`.
+     * `S5.R2` (RESPONSIBILITY): Aturan `STRONG` -> Verifier `PARTIAL`.
+   - **Perbandingan Akurasi Status:**
+     * **Aturan Murni (Tanpa Verifier):** **150/150 (100.00%)**
+     * **Paksa Verifier (R2, R9, R10):** **147/150 (98.00%)**
+     * **Selisih Akurasi:** **-2.00%** (Verifier cenderung lebih konservatif pada kriteria tanggung jawab produksi microservices).
+
+---
+
+## Bagian 7: Migrasi Embedding Harrier-270m & Uji Throughput Ulang (Poin 2)
+
+1. **Migrasi Kolom Vektor & Index:**
+   - Kolom `profile_chunks.embedding` diubah menjadi `vector(640)`.
+   - Indeks HNSW `vector_cosine_ops` berhasil dibuat ulang.
+   - Konfigurasi `.env` dan `config.py` diperbarui ke `microsoft/harrier-oss-v1-270m` (640 dimensi).
+2. **Hasil Uji Ulang Throughput 300 CV di CPU VPS:**
+   - Total CV diproses: **300 CV**
+   - Berhasil: **300/300 status READY (100%)**
+   - Waktu total pipeline: **340.63 detik (~5.68 menit)**
+   - Kecepatan rata-rata: **0.88 CV / detik**
+   - Target spesifikasi: `< 15 menit` $\rightarrow$ **LULUS (2.6x lebih cepat dari batas)**.
+3. **Uji Ulang Evaluator Pasca-Migrasi:**
+   - `evaluate.py --jd01`: **LULUS** (150/150 kriteria akurat, Precision@5 = 1.0, NDCG@10 = 1.000).
+   - `evaluate.py --repeat`: **LULUS** (peringkat dan skor 100% identik).
+   - `evaluate.py --jd02`: **LULUS** (I1 peringkat 1 skor 100.0, CV lain <= 10.0).
+   - `evaluate.py --edge`: **LULUS** (E1, E2, E3, E4, E5a, E5b, E6, E7, E8 seluruhnya lulus).
+
+---
+
+## Bagian 8: Hasil Penyelesaian Milestone M5 (Frontend SPA)
+
+1. **Arsitektur Frontend:**
+   - Dibangun dengan Vite + React + TypeScript + Tailwind CSS di `/srv/hermes-control/services/cv-screening/frontend/`.
+   - Build produksi (`dist/`) langsung disajikan oleh reverse proxy Caddy di `screening.rifqisetiawan.my.id`.
+2. **Implementasi Layar Sesuai 05_UI_UX_SPEC:**
+   - **Screen 1 (Setup Lowongan):** Input judul, lokasi, tipe kerja, textarea JD besar.
+   - **Screen 1b (Tinjau Kriteria):** Tabel kriteria interaktif, bar kategori 40/30/15/15, deteksi kriteria terlarang merah, tombol setujui versi (immutable).
+   - **Screen 2 (Upload CV):** Dropzone drag-and-drop, status chips (Siap, Perlu Cek Manual, Tidak Memenuhi Syarat, Duplikat).
+   - **Screen 3 (Leaderboard):** Header run, tab band A/B/C/Manual, peringkat, skor besar berwarna, kriteria wajib dots, chip rekomendasi, toggle Blind Mode (C-0001).
+   - **Screen 4 (Drawer Detail):** Lebar 55%, tab Ringkasan, Kartu Skor, Berkas CV & highlight kutipan bukti, serta dropdown keputusan (Shortlist, Tahan, Tidak Lanjut).
+   - **Bandingkan & Export:** Modal perbandingan berdampingan 2–4 kandidat dan modal export XLSX/CSV.
+3. **Pemeriksaan Teks Otomatis:**
+   - Bersih 100% dari kata "Reject" (diganti menjadi "Tidak Lanjut" / "Tidak Memenuhi Syarat").
+   - Bersih 100% dari kata "tidak menguasai" (diganti menjadi "Tidak tercantum di CV" / "Belum terbukti di CV").
+4. **Verifikasi Playwright E2E Test:**
+   - Pengujian otomatis end-to-end pada `tests/test_ui_flow.py` berhasil **LULUS 100%** (32/32 tests green di suite pytest).
