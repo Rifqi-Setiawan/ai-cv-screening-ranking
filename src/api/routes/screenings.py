@@ -89,12 +89,17 @@ async def trigger_screening_run(
 
         # 3. Create immutable screening run record
         run_id = uuid.uuid4()
+        versions_info = {
+            "extractor": "cv-extractor 1.0.0",
+            "embedding": "microsoft/harrier-oss-v1-270m",
+            "scoring": "1.0.0",
+        }
         await cur.execute(
             """
             INSERT INTO screening_runs (
-                id, tenant_id, job_id, requirement_set_id, status, as_of, config
+                id, tenant_id, job_id, requirement_set_id, status, as_of, versions, params
             )
-            VALUES (%s, %s, %s, %s, 'RUNNING', %s, %s)
+            VALUES (%s, %s, %s, %s, 'RUNNING', %s, %s, %s)
             """,
             (
                 run_id,
@@ -102,16 +107,20 @@ async def trigger_screening_run(
                 job_id,
                 req_set["id"],
                 payload.as_of,
+                json.dumps(versions_info),
                 json.dumps({"use_verifier": payload.use_verifier, "as_of": payload.as_of}),
             ),
         )
 
-        # 4. Fetch all CVs for this job
+        # 4. Fetch all documents and candidate profiles for this job
         await cur.execute(
             """
-            SELECT id, file_name, file_hash, matching_profile, full_text_redacted, quality_status, flags, reasons
-            FROM cvs
-            WHERE job_id = %s
+            SELECT d.id as document_id, d.original_filename as file_name, d.sha256 as file_hash,
+                   d.status as quality_status, d.flags, d.reasons, d.candidate_id,
+                   cp.matching_profile
+            FROM documents d
+            LEFT JOIN candidate_profiles cp ON cp.document_id = d.id
+            WHERE d.job_id = %s
             """,
             (job_id,),
         )
@@ -121,17 +130,19 @@ async def trigger_screening_run(
         eval_cache: dict[str, dict[str, Any]] = {}
 
         for cv in cv_rows:
-            cv_id = cv["id"]
+            doc_id = cv["document_id"]
+            cand_id = cv["candidate_id"] or doc_id
             file_name = cv["file_name"]
             matching_prof = cv["matching_profile"] or {}
-            full_text = cv["full_text_redacted"] or ""
+            full_text = ""
             flags = list(cv["flags"] or [])
             reasons = list(cv["reasons"] or [])
 
             # Check for edge case quality statuses
             if cv["quality_status"] in ("REJECTED", "NEEDS_REVIEW", "DUPLICATE"):
-                eval_cache[str(cv_id)] = {
-                    "cv_id": cv_id,
+                eval_cache[str(cand_id)] = {
+                    "cv_id": cand_id,
+                    "document_id": doc_id,
                     "file_name": file_name,
                     "status": cv["quality_status"],
                     "states": {},
@@ -186,16 +197,28 @@ async def trigger_screening_run(
             score_res = score(states_map, req_set_dict)
             strong_count = sum(1 for v in states_map.values() if v == "STRONG")
 
+            # Ensure candidate exists in candidates table
+            await cur.execute(
+                """
+                INSERT INTO candidates (id, tenant_id, candidate_code, status)
+                VALUES (%s, %s, %s, 'ACTIVE')
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (cand_id, current_user.tenant_id, f"C-{str(cand_id)[:6]}"),
+            )
+
             scoring_items.append(
                 {
-                    "cv_id": cv_id,
+                    "cv_id": cand_id,
+                    "document_id": doc_id,
                     "file_name": file_name,
                     "result": score_res,
                     "strong_count": strong_count,
                 }
             )
-            eval_cache[str(cv_id)] = {
-                "cv_id": cv_id,
+            eval_cache[str(cand_id)] = {
+                "cv_id": cand_id,
+                "document_id": doc_id,
                 "file_name": file_name,
                 "status": "SCORED",
                 "states": states_map,
@@ -213,6 +236,7 @@ async def trigger_screening_run(
         # 6. Save candidate_scores, requirement_scores, and evidence into DB
         for str_cid, c_data in eval_cache.items():
             cv_id_val = c_data["cv_id"]
+            doc_id_val = c_data["document_id"]
             cand_rank = rank_lookup.get(str_cid)
             s_res = c_data["score_res"]
 
@@ -222,27 +246,27 @@ async def trigger_screening_run(
             rec = s_res.recommendation if s_res else "MANUAL_CHECK"
             cat_b = s_res.category_breakdown if s_res else {}
 
-            score_id = uuid.uuid4()
             await cur.execute(
                 """
                 INSERT INTO candidate_scores (
-                    id, tenant_id, screening_run_id, cv_id, rank, raw_score, final_score,
-                    band, recommendation, category_breakdown, metrics, flags
+                    run_id, candidate_id, tenant_id, document_id, rank, band,
+                    raw_score, final_score, capped, recommendation, category_scores, flags
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, false, %s, %s, %s)
+                ON CONFLICT (run_id, candidate_id) DO UPDATE SET
+                    rank = EXCLUDED.rank, final_score = EXCLUDED.final_score
                 """,
                 (
-                    score_id,
-                    current_user.tenant_id,
                     run_id,
                     cv_id_val,
+                    current_user.tenant_id,
+                    doc_id_val,
                     cand_rank,
+                    bnd,
                     raw_sc,
                     fin_sc,
-                    bnd,
                     rec,
                     json.dumps(cat_b),
-                    json.dumps(c_data["metrics"]),
                     c_data["flags"],
                 ),
             )
@@ -253,59 +277,47 @@ async def trigger_screening_run(
                 st_val = c_data["states"].get(req_id_str, "NOT_DEMONSTRATED")
                 ev_list = c_data["evidence"].get(req_id_str, [])
 
-                # Map requirement string ID to DB UUID if available
-                req_score_id = uuid.uuid4()
-                # Find requirement record uuid
                 await cur.execute(
                     """
-                    SELECT id FROM requirements
-                    WHERE requirement_set_id = %s AND requirement_id = %s
-                    LIMIT 1
+                    INSERT INTO requirement_scores (
+                        run_id, candidate_id, requirement_id, tenant_id, state, confidence, method, metrics
+                    )
+                    VALUES (%s, %s, %s, %s, %s, 0.95, 'rule', '{}'::jsonb)
+                    ON CONFLICT (run_id, candidate_id, requirement_id) DO NOTHING
                     """,
-                    (req_set["id"], req_id_str),
+                    (run_id, cv_id_val, req_id_str, current_user.tenant_id, st_val),
                 )
-                req_row = await cur.fetchone()
-                req_db_id = req_row["id"] if req_row else None
 
-                if req_db_id:
+                for ev_item in ev_list:
                     await cur.execute(
                         """
-                        INSERT INTO requirement_scores (
-                            id, tenant_id, candidate_score_id, requirement_id, state, confidence
+                        INSERT INTO evidence (
+                            id, run_id, candidate_id, requirement_id, tenant_id, quote, context, verified
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                         """,
-                        (req_score_id, current_user.tenant_id, score_id, req_db_id, st_val, 0.95),
+                        (
+                            uuid.uuid4(),
+                            run_id,
+                            cv_id_val,
+                            req_id_str,
+                            current_user.tenant_id,
+                            ev_item.get("quote", ""),
+                            ev_item.get("context", "experience"),
+                            ev_item.get("verified", True),
+                        ),
                     )
 
-                    for ev_item in ev_list:
-                        await cur.execute(
-                            """
-                            INSERT INTO evidence (
-                                id, tenant_id, requirement_score_id, quote, context, verified
-                            )
-                            VALUES (%s, %s, %s, %s, %s, %s)
-                            """,
-                            (
-                                uuid.uuid4(),
-                                current_user.tenant_id,
-                                req_score_id,
-                                ev_item.get("quote", ""),
-                                ev_item.get("context", "experience"),
-                                ev_item.get("verified", True),
-                            ),
-                        )
-
-        # Mark screening run COMPLETED
+        # Mark screening run DONE
         await cur.execute(
-            "UPDATE screening_runs SET status = 'COMPLETED', completed_at = now() WHERE id = %s",
+            "UPDATE screening_runs SET status = 'DONE', finished_at = now() WHERE id = %s",
             (run_id,),
         )
         await conn.commit()
 
         return {
             "screening_run_id": str(run_id),
-            "status": "COMPLETED",
+            "status": "DONE",
             "as_of": payload.as_of,
             "total_candidates": len(cv_rows),
             "scored_candidates": len(scoring_items),
@@ -323,11 +335,11 @@ async def get_rankings(
         cur = conn.cursor()
         await cur.execute(
             """
-            SELECT cs.rank, cs.cv_id, c.file_name, cs.final_score, cs.raw_score,
-                   cs.band, cs.recommendation, cs.category_breakdown, cs.flags, c.quality_status
+            SELECT cs.rank, cs.candidate_id as cv_id, d.original_filename as file_name, cs.final_score, cs.raw_score,
+                   cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status
             FROM candidate_scores cs
-            JOIN cvs c ON cs.cv_id = c.id
-            WHERE cs.screening_run_id = %s
+            JOIN documents d ON cs.document_id = d.id
+            WHERE cs.run_id = %s
             ORDER BY cs.rank ASC NULLS LAST, cs.final_score DESC
             """,
             (run_id,),
@@ -354,11 +366,11 @@ async def get_candidate_detail(
         # Fetch candidate score
         await cur.execute(
             """
-            SELECT cs.id, cs.rank, cs.final_score, cs.raw_score, cs.band, cs.recommendation,
-                   cs.category_breakdown, cs.metrics, cs.flags, c.file_name
+            SELECT cs.rank, cs.final_score, cs.raw_score, cs.band, cs.recommendation,
+                   cs.category_scores as category_breakdown, cs.flags, d.original_filename as file_name
             FROM candidate_scores cs
-            JOIN cvs c ON cs.cv_id = c.id
-            WHERE cs.screening_run_id = %s AND cs.cv_id = %s
+            JOIN documents d ON cs.document_id = d.id
+            WHERE cs.run_id = %s AND cs.candidate_id = %s
             """,
             (run_id, cv_id),
         )
@@ -366,17 +378,15 @@ async def get_candidate_detail(
         if not cand_score:
             raise HTTPException(status_code=404, detail="Candidate score not found")
 
-        # Fetch requirements and evidence
+        # Fetch requirements and states
         await cur.execute(
             """
-            SELECT r.requirement_id, r.description, r.category, r.kind, r.importance, r.weight,
-                   rs.state, rs.confidence
-            FROM requirement_scores rs
-            JOIN requirements r ON rs.requirement_id = r.id
-            WHERE rs.candidate_score_id = %s
-            ORDER BY r.requirement_id
+            SELECT requirement_id, state, confidence
+            FROM requirement_scores
+            WHERE run_id = %s AND candidate_id = %s
+            ORDER BY requirement_id
             """,
-            (cand_score["id"],),
+            (run_id, cv_id),
         )
         req_rows = await cur.fetchall()
 
@@ -387,12 +397,10 @@ async def get_candidate_detail(
             await cur.execute(
                 """
                 SELECT quote, context, verified
-                FROM evidence e
-                JOIN requirement_scores rs ON e.requirement_score_id = rs.id
-                JOIN requirements req ON rs.requirement_id = req.id
-                WHERE rs.candidate_score_id = %s AND req.requirement_id = %s
+                FROM evidence
+                WHERE run_id = %s AND candidate_id = %s AND requirement_id = %s
                 """,
-                (cand_score["id"], r["requirement_id"]),
+                (run_id, cv_id, r["requirement_id"]),
             )
             evs = await cur.fetchall()
             ev_map[r["requirement_id"]] = [dict(e) for e in evs]
@@ -420,7 +428,7 @@ async def get_candidate_detail(
             "band": cand_score["band"],
             "recommendation": cand_score["recommendation"],
             "category_breakdown": cand_score["category_breakdown"],
-            "metrics": cand_score["metrics"],
+            "metrics": {},
             "flags": cand_score["flags"],
             "requirement_states": req_states,
             "evidence": ev_map,
@@ -499,12 +507,12 @@ async def export_for_evaluator(
 
         await cur.execute(
             """
-            SELECT cs.id as score_id, cs.rank, cs.final_score, cs.raw_score, cs.band,
-                   cs.recommendation, cs.category_breakdown, cs.metrics, cs.flags,
-                   c.file_name, c.quality_status, c.reasons
+            SELECT cs.candidate_id as cv_id, cs.rank, cs.final_score, cs.raw_score, cs.band,
+                   cs.recommendation, cs.category_scores as category_breakdown, cs.flags,
+                   d.original_filename as file_name, d.status as quality_status, d.reasons
             FROM candidate_scores cs
-            JOIN cvs c ON cs.cv_id = c.id
-            WHERE cs.screening_run_id = %s
+            JOIN documents d ON cs.document_id = d.id
+            WHERE cs.run_id = %s
             ORDER BY cs.rank ASC NULLS LAST
             """,
             (run_id,),
@@ -516,12 +524,11 @@ async def export_for_evaluator(
             # Fetch requirement states
             await cur.execute(
                 """
-                SELECT req.requirement_id, rs.state
-                FROM requirement_scores rs
-                JOIN requirements req ON rs.requirement_id = req.id
-                WHERE rs.candidate_score_id = %s
+                SELECT requirement_id, state
+                FROM requirement_scores
+                WHERE run_id = %s AND candidate_id = %s
                 """,
-                (r["score_id"],),
+                (run_id, r["cv_id"]),
             )
             req_states = {row["requirement_id"]: row["state"] for row in await cur.fetchall()}
 
@@ -532,11 +539,11 @@ async def export_for_evaluator(
                     "status": status_val,
                     "rank": r["rank"],
                     "band": r["band"],
-                    "score": r["final_score"],
-                    "raw_score": r["raw_score"],
+                    "score": float(r["final_score"] or 0),
+                    "raw_score": float(r["raw_score"] or 0),
                     "recommendation": r["recommendation"],
                     "requirement_states": req_states,
-                    "metrics": r["metrics"] or {},
+                    "metrics": {},
                     "flags": r["flags"] or [],
                     "reasons": r["reasons"] or [],
                 }
