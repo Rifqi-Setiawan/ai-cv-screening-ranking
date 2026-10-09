@@ -1,4 +1,5 @@
 """Tests verifying PostgreSQL schema, relations, pgvector extension, and indices."""
+
 from __future__ import annotations
 
 import pytest
@@ -9,11 +10,25 @@ from src.infrastructure.database import get_connection
 @pytest.mark.asyncio
 async def test_all_19_tables_exist():
     expected_tables = {
-        "users", "jobs", "requirement_sets", "requirements", "candidates",
-        "candidate_identities", "candidate_profiles", "skill_mentions",
-        "profile_chunks", "documents", "jobs_queue", "screening_runs",
-        "requirement_scores", "evidence", "candidate_scores", "reviews",
-        "audit_logs", "model_calls", "llm_cache",
+        "users",
+        "jobs",
+        "requirement_sets",
+        "requirements",
+        "candidates",
+        "candidate_identities",
+        "candidate_profiles",
+        "skill_mentions",
+        "profile_chunks",
+        "documents",
+        "jobs_queue",
+        "screening_runs",
+        "requirement_scores",
+        "evidence",
+        "candidate_scores",
+        "reviews",
+        "audit_logs",
+        "model_calls",
+        "llm_cache",
     }
     async with get_connection() as conn, conn.cursor() as cur:
         await cur.execute(
@@ -32,9 +47,7 @@ async def test_all_19_tables_exist():
 @pytest.mark.asyncio
 async def test_pgvector_extension_version():
     async with get_connection() as conn, conn.cursor() as cur:
-        await cur.execute(
-            "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
-        )
+        await cur.execute("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
         row = await cur.fetchone()
         assert row is not None, "pgvector extension is not installed in database"
         version_str = row["extversion"]

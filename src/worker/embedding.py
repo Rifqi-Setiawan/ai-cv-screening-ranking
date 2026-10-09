@@ -1,4 +1,5 @@
 """Embedding generator for candidate profile chunks using MiniLM on CPU."""
+
 from __future__ import annotations
 
 from sentence_transformers import SentenceTransformer

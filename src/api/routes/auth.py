@@ -1,4 +1,5 @@
 """Authentication endpoints: login, token issuance, and profile inspection."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status

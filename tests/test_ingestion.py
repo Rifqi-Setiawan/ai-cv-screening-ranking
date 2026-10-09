@@ -1,4 +1,5 @@
 """Integration tests for CV ingestion API, quality checks, deduplication, and extraction export."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -26,12 +27,28 @@ async def test_batch_upload_and_edge_cases(client: httpx.AsyncClient, recruiter_
     cvs_edge = Path("docs/spec/golden_dataset/cvs/edge")
 
     files_to_upload = [
-        ("files", ("S1_senior_backend_id.pdf", (cvs_core / "S1_senior_backend_id.pdf").read_bytes(), "application/pdf")),
+        (
+            "files",
+            ("S1_senior_backend_id.pdf", (cvs_core / "S1_senior_backend_id.pdf").read_bytes(), "application/pdf"),
+        ),
         ("files", ("E8_duplicate_of_S1.pdf", (cvs_edge / "E8_duplicate_of_S1.pdf").read_bytes(), "application/pdf")),
         ("files", ("E1_empty_cv.pdf", (cvs_edge / "E1_empty_cv.pdf").read_bytes(), "application/pdf")),
-        ("files", ("E6_password_protected.pdf", (cvs_edge / "E6_password_protected.pdf").read_bytes(), "application/pdf")),
-        ("files", ("E7_cover_letter_not_cv.pdf", (cvs_edge / "E7_cover_letter_not_cv.pdf").read_bytes(), "application/pdf")),
-        ("files", ("E3_hidden_prompt_injection.pdf", (cvs_edge / "E3_hidden_prompt_injection.pdf").read_bytes(), "application/pdf")),
+        (
+            "files",
+            ("E6_password_protected.pdf", (cvs_edge / "E6_password_protected.pdf").read_bytes(), "application/pdf"),
+        ),
+        (
+            "files",
+            ("E7_cover_letter_not_cv.pdf", (cvs_edge / "E7_cover_letter_not_cv.pdf").read_bytes(), "application/pdf"),
+        ),
+        (
+            "files",
+            (
+                "E3_hidden_prompt_injection.pdf",
+                (cvs_edge / "E3_hidden_prompt_injection.pdf").read_bytes(),
+                "application/pdf",
+            ),
+        ),
     ]
 
     up_res = await client.post(f"/api/v1/jobs/{job_id}/cvs", files=files_to_upload, headers=headers)
@@ -99,7 +116,9 @@ async def test_extraction_export_matches_evaluator(client: httpx.AsyncClient, re
 
     # Run golden dataset evaluate.py --extraction on this exact exported JSON!
     import sys
+
     sys.path.insert(0, "docs/spec/golden_dataset")
     from evaluate import eval_extraction
+
     passed = eval_extraction(export_data)
     assert passed is True, "evaluate.py --extraction failed on API export data!"

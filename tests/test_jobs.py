@@ -1,4 +1,5 @@
 """Tests for job routes and role-based access control (RBAC)."""
+
 from __future__ import annotations
 
 import httpx
@@ -37,9 +38,7 @@ async def test_create_job_as_recruiter(client: httpx.AsyncClient, recruiter_toke
 
 
 @pytest.mark.asyncio
-async def test_create_job_forbidden_for_hiring_manager(
-    client: httpx.AsyncClient, hiring_manager_token: str
-):
+async def test_create_job_forbidden_for_hiring_manager(client: httpx.AsyncClient, hiring_manager_token: str):
     headers = {"Authorization": f"Bearer {hiring_manager_token}"}
     payload = {
         "title": "Data Scientist",

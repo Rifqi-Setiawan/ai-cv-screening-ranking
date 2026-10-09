@@ -1,4 +1,5 @@
 """Document ingestion, parsing, redaction, and embedding pipeline processor."""
+
 from __future__ import annotations
 
 import hashlib

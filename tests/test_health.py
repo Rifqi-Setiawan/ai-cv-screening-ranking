@@ -1,4 +1,5 @@
 """Tests for health check and operational endpoints."""
+
 from __future__ import annotations
 
 import httpx

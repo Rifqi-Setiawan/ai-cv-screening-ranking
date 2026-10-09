@@ -1,4 +1,5 @@
 """Database connection pool and async session manager using psycopg 3."""
+
 from __future__ import annotations
 
 import contextlib

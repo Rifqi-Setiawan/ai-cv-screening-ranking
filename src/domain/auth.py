@@ -1,4 +1,5 @@
 """Authentication, JWT tokens, and RBAC utility functions."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta

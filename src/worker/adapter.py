@@ -1,4 +1,5 @@
 """Production adapter converting raw cv-extractor output into CandidateProfile with provenance."""
+
 from __future__ import annotations
 
 import re
@@ -15,18 +16,46 @@ from cv_extractor.application.config import LlmConfig, OcrConfig, PipelineConfig
 from cv_extractor.bootstrap import build_service
 
 MONTHS_MAP = {
-    "jan": "01", "januari": "01", "january": "01",
-    "feb": "02", "februari": "02", "pebruari": "02", "february": "02",
-    "mar": "03", "maret": "03", "march": "03",
-    "apr": "04", "april": "04",
-    "mei": "05", "may": "05",
-    "jun": "06", "juni": "06", "june": "06",
-    "jul": "07", "juli": "07", "july": "07",
-    "agu": "08", "agt": "08", "agus": "08", "agustus": "08", "aug": "08", "august": "08",
-    "sep": "09", "sept": "09", "september": "09",
-    "okt": "10", "oktober": "10", "oct": "10", "october": "10",
-    "nov": "11", "nopember": "11", "november": "11",
-    "des": "12", "desember": "12", "dec": "12", "december": "12",
+    "jan": "01",
+    "januari": "01",
+    "january": "01",
+    "feb": "02",
+    "februari": "02",
+    "pebruari": "02",
+    "february": "02",
+    "mar": "03",
+    "maret": "03",
+    "march": "03",
+    "apr": "04",
+    "april": "04",
+    "mei": "05",
+    "may": "05",
+    "jun": "06",
+    "juni": "06",
+    "june": "06",
+    "jul": "07",
+    "juli": "07",
+    "july": "07",
+    "agu": "08",
+    "agt": "08",
+    "agus": "08",
+    "agustus": "08",
+    "aug": "08",
+    "august": "08",
+    "sep": "09",
+    "sept": "09",
+    "september": "09",
+    "okt": "10",
+    "oktober": "10",
+    "oct": "10",
+    "october": "10",
+    "nov": "11",
+    "nopember": "11",
+    "november": "11",
+    "des": "12",
+    "desember": "12",
+    "dec": "12",
+    "december": "12",
 }
 
 PRESENT_SET = {"sekarang", "saat ini", "kini", "present", "now", "current", "currently", "to date"}
@@ -161,25 +190,31 @@ def parse_experiences(section_text: str, full_doc_text: str) -> list[dict[str, A
         for bl in bullet_lines:
             bl_clean = bl.lstrip("•-* ").strip()
             if len(bl_clean) > 5 and not RANGE_REGEX.search(bl):
-                bullets.append({
-                    "text": bl_clean,
-                    "source": find_provenance(full_doc_text, bl_clean),
-                    "has_quantified_result": bool(re.search(r"\d+[%kKmM]|meningkatkan|menurunkan|cut|reduced", bl_clean)),
-                })
+                bullets.append(
+                    {
+                        "text": bl_clean,
+                        "source": find_provenance(full_doc_text, bl_clean),
+                        "has_quantified_result": bool(
+                            re.search(r"\d+[%kKmM]|meningkatkan|menurunkan|cut|reduced", bl_clean)
+                        ),
+                    }
+                )
 
         if title:
             title = re.split(r"[—|]", title)[0].strip()
-            entries.append({
-                "entry_id": f"exp_{len(entries) + 1}",
-                "title": title,
-                "organization": org,
-                "start": start_date,
-                "end": end_date,
-                "context": context_type,
-                "employment_type": emp_type,
-                "bullets": bullets,
-                "source": find_provenance(full_doc_text, title),
-            })
+            entries.append(
+                {
+                    "entry_id": f"exp_{len(entries) + 1}",
+                    "title": title,
+                    "organization": org,
+                    "start": start_date,
+                    "end": end_date,
+                    "context": context_type,
+                    "employment_type": emp_type,
+                    "bullets": bullets,
+                    "source": find_provenance(full_doc_text, title),
+                }
+            )
 
     return entries
 
@@ -205,7 +240,13 @@ def parse_certifications(ce_text: str, ed_text: str) -> list[str]:
     merged = []
     curr = ""
     for l in lines:
-        if curr and (l.startswith("Developer") or l.startswith("Engineer") or l.startswith("(") or l.startswith("—") or l.startswith("-")):
+        if curr and (
+            l.startswith("Developer")
+            or l.startswith("Engineer")
+            or l.startswith("(")
+            or l.startswith("—")
+            or l.startswith("-")
+        ):
             curr += " " + l
         else:
             if curr:
@@ -214,7 +255,9 @@ def parse_certifications(ce_text: str, ed_text: str) -> list[str]:
     if curr:
         merged.append(curr)
 
-    return [l for l in merged if len(l) > 3 and not l.lower().startswith("keahlian") and not l.lower().startswith("skills")]
+    return [
+        l for l in merged if len(l) > 3 and not l.lower().startswith("keahlian") and not l.lower().startswith("skills")
+    ]
 
 
 def parse_education(section_text: str, full_doc_text: str) -> list[dict[str, Any]]:
@@ -237,13 +280,15 @@ def parse_education(section_text: str, full_doc_text: str) -> list[dict[str, Any
 
     entries = []
     for idx, lvl in enumerate(levels):
-        entries.append({
-            "entry_id": f"edu_{idx + 1}",
-            "level": lvl,
-            "degree_raw": section_text.splitlines()[0] if section_text else lvl,
-            "institution": section_text.splitlines()[1] if len(section_text.splitlines()) > 1 else "",
-            "source": find_provenance(full_doc_text, lvl),
-        })
+        entries.append(
+            {
+                "entry_id": f"edu_{idx + 1}",
+                "level": lvl,
+                "degree_raw": section_text.splitlines()[0] if section_text else lvl,
+                "institution": section_text.splitlines()[1] if len(section_text.splitlines()) > 1 else "",
+                "source": find_provenance(full_doc_text, lvl),
+            }
+        )
     return entries
 
 
@@ -305,28 +350,33 @@ def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
 
     projects = []
     if prj_text:
-        projects.append({
-            "entry_id": "prj_1",
-            "title": prj_text.splitlines()[0] if prj_text else "Proyek",
-            "text": prj_text,
-            "source": find_provenance(full_text, prj_text[:40]),
-        })
+        projects.append(
+            {
+                "entry_id": "prj_1",
+                "title": prj_text.splitlines()[0] if prj_text else "Proyek",
+                "text": prj_text,
+                "source": find_provenance(full_text, prj_text[:40]),
+            }
+        )
 
     organizations = []
     if org_text:
-        organizations.append({
-            "entry_id": "org_1",
-            "title": org_text.splitlines()[0] if org_text else "Organisasi",
-            "text": org_text,
-            "source": find_provenance(full_text, org_text[:40]),
-        })
+        organizations.append(
+            {
+                "entry_id": "org_1",
+                "title": org_text.splitlines()[0] if org_text else "Organisasi",
+                "text": org_text,
+                "source": find_provenance(full_text, org_text[:40]),
+            }
+        )
 
     profile = {
         "document_id": filename,
         "extractor": {
             "name": "cv-extractor",
             "version": "1.0.0",
-            "ocr_used": raw.get("meta", {}).get("llm_used", False) or any(p.get("source") == "ocr" for p in raw.get("meta", {}).get("pages", [])),
+            "ocr_used": raw.get("meta", {}).get("llm_used", False)
+            or any(p.get("source") == "ocr" for p in raw.get("meta", {}).get("pages", [])),
         },
         "language": ["id"],
         "identity": identity,

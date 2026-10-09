@@ -1,4 +1,5 @@
 """CV batch upload, processing status inspection, and evaluation export endpoints."""
+
 from __future__ import annotations
 
 import hashlib
@@ -128,11 +129,13 @@ async def upload_cvs(
                     (json.dumps({"document_id": str(doc_id)}),),
                 )
 
-            created_docs.append({
-                "id": str(doc_row["id"]),
-                "filename": doc_row["original_filename"],
-                "status": initial_status,
-            })
+            created_docs.append(
+                {
+                    "id": str(doc_row["id"]),
+                    "filename": doc_row["original_filename"],
+                    "status": initial_status,
+                }
+            )
 
         await conn.commit()
 
@@ -181,14 +184,16 @@ async def get_cvs_status(
             quality = r["quality"] or {}
             reasons = list(r["reasons"] or [])
             flags = list(set(list(r["flags"] or []) + list(quality.get("flags", []))))
-            items.append({
-                "id": str(r["id"]),
-                "filename": r["original_filename"],
-                "status": st,
-                "reasons": reasons,
-                "flags": flags,
-                "duplicate_of": r["duplicate_of_name"],
-            })
+            items.append(
+                {
+                    "id": str(r["id"]),
+                    "filename": r["original_filename"],
+                    "status": st,
+                    "reasons": reasons,
+                    "flags": flags,
+                    "duplicate_of": r["duplicate_of_name"],
+                }
+            )
 
         return {
             "job_id": str(job_id),
@@ -224,13 +229,15 @@ async def export_extractions(
             for exp in prof.get("experiences", []):
                 start_val = exp.get("start", {}).get("value")
                 end_val = exp.get("end", {}).get("value")
-                experiences.append({
-                    "title": exp.get("title"),
-                    "organization": exp.get("organization"),
-                    "start": start_val,
-                    "end": end_val,
-                    "employment_type": exp.get("employment_type"),
-                })
+                experiences.append(
+                    {
+                        "title": exp.get("title"),
+                        "organization": exp.get("organization"),
+                        "start": start_val,
+                        "end": end_val,
+                        "employment_type": exp.get("employment_type"),
+                    }
+                )
 
             education = [{"level": ed.get("level")} for ed in prof.get("education", [])]
             certifications = prof.get("certifications", [])

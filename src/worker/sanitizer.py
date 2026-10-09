@@ -1,4 +1,5 @@
 """File sanitization, MIME verification, malware protection, and edge case detection."""
+
 from __future__ import annotations
 
 import hashlib

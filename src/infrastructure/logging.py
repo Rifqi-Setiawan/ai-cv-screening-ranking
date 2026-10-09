@@ -1,4 +1,5 @@
 """Structured JSON logging for CV Screening platform."""
+
 from __future__ import annotations
 
 import json

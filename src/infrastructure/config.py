@@ -1,4 +1,5 @@
 """Application settings and configuration loaded from environment / .env."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -32,8 +33,9 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = 10
 
     # LLM Data Policy
-    # 'paid_or_local_only' restricts unmetered LLMs from receiving candidate data
-    LLM_DATA_POLICY: str = "paid_or_local_only"
+    # 'redacted_dev_router' enables 9Router for development with automated PII pre-flight verification
+    # 'paid_or_local_only' disables unmetered dev router and restricts calls to official metered APIs / local models
+    LLM_DATA_POLICY: str = "redacted_dev_router"
     LLM_GATEWAY_URL: str = "http://127.0.0.1:20128/v1"
     LLM_GATEWAY_KEY: str = ""
     LLM_MODEL_JD_COMPILER: str = "ag/gemini-3.8-flash-high"

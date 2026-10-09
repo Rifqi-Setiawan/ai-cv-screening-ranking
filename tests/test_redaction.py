@@ -1,4 +1,5 @@
 """Automated tests ensuring strict identity redaction and PII protection."""
+
 from __future__ import annotations
 
 import json
@@ -37,8 +38,23 @@ def test_identity_redaction_counterfactual_e5():
     match_b_str = json.dumps(match_b, ensure_ascii=False)
 
     forbidden_pii = [
-        "NADIA", "PUTRI", "LESTARI", "nadia.cf@example.com", "0812-0000-1401", "Perempuan", "Islam", "12 Mei 1999", "Menikah",
-        "YOHANES", "MARPAUNG", "yohanes.cf@example.com", "0812-0000-1402", "Laki-laki", "Kristen", "3 Januari 1988", "Belum menikah",
+        "NADIA",
+        "PUTRI",
+        "LESTARI",
+        "nadia.cf@example.com",
+        "0812-0000-1401",
+        "Perempuan",
+        "Islam",
+        "12 Mei 1999",
+        "Menikah",
+        "YOHANES",
+        "MARPAUNG",
+        "yohanes.cf@example.com",
+        "0812-0000-1402",
+        "Laki-laki",
+        "Kristen",
+        "3 Januari 1988",
+        "Belum menikah",
     ]
 
     for pii in forbidden_pii:

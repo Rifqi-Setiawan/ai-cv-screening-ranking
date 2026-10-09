@@ -1,4 +1,5 @@
 """Candidate identity separation, redaction, and PII protection module."""
+
 from __future__ import annotations
 
 import re
@@ -111,45 +112,55 @@ def extract_identity_and_redact(
         bullet_combined = " ".join([b["text"] for b in redacted_bullets])
         chunk_text = f"{redacted_exp['title']} di {redacted_exp['organization']}: {bullet_combined}".strip()
         if chunk_text:
-            chunks.append({
-                "kind": "experience",
-                "entry_ref": exp.get("entry_id"),
-                "text_redacted": chunk_text,
-            })
+            chunks.append(
+                {
+                    "kind": "experience",
+                    "entry_ref": exp.get("entry_id"),
+                    "text_redacted": chunk_text,
+                }
+            )
 
     # Projects
     for prj in raw_profile.get("projects", []):
         prj_text = redact_text(prj.get("text", "") or prj.get("title", ""), name, emails, phones)
         matching["projects"].append({**prj, "title": prj_text})
         if prj_text:
-            chunks.append({
-                "kind": "project",
-                "entry_ref": prj.get("entry_id"),
-                "text_redacted": prj_text,
-            })
+            chunks.append(
+                {
+                    "kind": "project",
+                    "entry_ref": prj.get("entry_id"),
+                    "text_redacted": prj_text,
+                }
+            )
 
     # Education
     for edu in raw_profile.get("education", []):
         edu_text = f"{edu.get('level', '')} {edu.get('degree_raw', '')} {edu.get('institution', '')}".strip()
         redacted_edu_text = redact_text(edu_text, name, emails, phones)
-        matching["education"].append({
-            **edu,
-            "institution": redact_text(edu.get("institution", ""), name, emails, phones),
-        })
+        matching["education"].append(
+            {
+                **edu,
+                "institution": redact_text(edu.get("institution", ""), name, emails, phones),
+            }
+        )
         if redacted_edu_text:
-            chunks.append({
-                "kind": "education",
-                "entry_ref": edu.get("entry_id"),
-                "text_redacted": redacted_edu_text,
-            })
+            chunks.append(
+                {
+                    "kind": "education",
+                    "entry_ref": edu.get("entry_id"),
+                    "text_redacted": redacted_edu_text,
+                }
+            )
 
     # Skills list chunk
     skills_text = ", ".join(matching["skills"])
     if skills_text:
-        chunks.append({
-            "kind": "skills",
-            "entry_ref": "skills_block",
-            "text_redacted": f"Keahlian: {skills_text}",
-        })
+        chunks.append(
+            {
+                "kind": "skills",
+                "entry_ref": "skills_block",
+                "text_redacted": f"Keahlian: {skills_text}",
+            }
+        )
 
     return identity_record, matching, chunks

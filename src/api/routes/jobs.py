@@ -1,4 +1,5 @@
 """Job openings management routes with role-based access control."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, status

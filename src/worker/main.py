@@ -1,4 +1,5 @@
 """Background task worker for asynchronous CV ingestion, embedding, and scoring."""
+
 from __future__ import annotations
 
 import asyncio

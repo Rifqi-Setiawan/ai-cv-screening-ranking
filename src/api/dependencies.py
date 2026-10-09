@@ -1,4 +1,5 @@
 """FastAPI request dependencies, security gates, and RBAC enforcement."""
+
 from __future__ import annotations
 
 from collections.abc import Callable
