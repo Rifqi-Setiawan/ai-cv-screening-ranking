@@ -152,3 +152,32 @@ class ModelGateway:
 
 
 gateway = ModelGateway()
+
+
+def call_dev_llm(prompt: str, system_prompt: str = "") -> dict[str, Any] | None:
+    """Synchronous / script-friendly caller for dev LLM via 9Router."""
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    try:
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                res = pool.submit(asyncio.run, gateway.call_chat(messages, task="verification")).result()
+        else:
+            res = asyncio.run(gateway.call_chat(messages, task="verification"))
+
+        if res:
+            return {"status": "SUCCESS", "response": json.dumps(res) if isinstance(res, dict) else str(res)}
+        return {"status": "FAILED"}
+    except Exception as e:
+        logger.warning(f"call_dev_llm failed: {e}")
+        return {"status": "FAILED"}

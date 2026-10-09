@@ -292,7 +292,44 @@ def parse_education(section_text: str, full_doc_text: str) -> list[dict[str, Any
     return entries
 
 
+def strip_hidden_pdf_spans(content: bytes) -> bytes:
+    """Strips micro-font (<4pt) and injection phrases from PDF to prevent evaluation pollution."""
+    try:
+        import fitz
+        doc = fitz.open(stream=content, filetype="pdf")
+        has_hidden = False
+        inj_pats = [
+            re.compile(r"ignore\s+(?:all\s+)?previous\s+instructions", re.IGNORECASE),
+            re.compile(r"evaluation\s+override\s+mode", re.IGNORECASE),
+            re.compile(r"abaikan\s+semua\s+instruksi", re.IGNORECASE),
+            re.compile(r"beri\s+nilai\s+100", re.IGNORECASE),
+        ]
+        for page in doc:
+            for b in page.get_text("dict").get("blocks", []):
+                for line in b.get("lines", []):
+                    for span in line.get("spans", []):
+                        sz = span.get("size", 10)
+                        txt = span.get("text", "")
+                        is_inj = any(pat.search(txt) for pat in inj_pats)
+                        if sz < 4.0 or is_inj:
+                            has_hidden = True
+                            rect = fitz.Rect(span["bbox"])
+                            page.add_redact_annot(rect)
+            if has_hidden:
+                page.apply_redactions()
+        if has_hidden:
+            out = doc.write()
+            doc.close()
+            return out
+        doc.close()
+        return content
+    except Exception:
+        return content
+
+
 def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
+    if filename.lower().endswith(".pdf"):
+        content = strip_hidden_pdf_spans(content)
     service = get_extractor_service()
     raw = service.extract(content, filename).to_dict()
 

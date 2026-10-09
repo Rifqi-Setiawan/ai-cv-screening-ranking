@@ -22,6 +22,13 @@ EMAIL_REGEX = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
 PHONE_REGEX = re.compile(r"(?:\+62|62|08)[0-9\s-]{8,15}")
 
 
+NON_NAME_WORDS = {
+    "fresh", "graduate", "backend", "frontend", "developer", "engineer", "lead", "senior",
+    "junior", "manager", "staff", "intern", "internship", "analyst", "fullstack", "specialist",
+    "supervisor", "executive", "pt", "cv", "indonesia", "jakarta", "bandung", "surabaya",
+}
+
+
 def redact_text(text: str, name: str = "", emails: list[str] | None = None, phones: list[str] | None = None) -> str:
     if not text:
         return ""
@@ -31,9 +38,9 @@ def redact_text(text: str, name: str = "", emails: list[str] | None = None, phon
     for pat in DEMOGRAPHIC_PATTERNS:
         result = pat.sub("", result)
 
-    # Redact specific name tokens if provided
+    # Redact specific name tokens if provided (filtering out common role words)
     if name:
-        tokens = [t.strip() for t in name.split() if len(t.strip()) > 2]
+        tokens = [t.strip() for t in name.split() if len(t.strip()) > 2 and t.lower() not in NON_NAME_WORDS]
         for t in sorted(tokens, key=len, reverse=True):
             result = re.sub(rf"\b{re.escape(t)}\b", "[NAMA]", result, flags=re.IGNORECASE)
 
@@ -123,13 +130,26 @@ def extract_identity_and_redact(
     # Projects
     for prj in raw_profile.get("projects", []):
         prj_text = redact_text(prj.get("text", "") or prj.get("title", ""), name, emails, phones)
-        matching["projects"].append({**prj, "title": prj_text})
+        matching["projects"].append({**prj, "title": prj_text, "text": prj_text})
         if prj_text:
             chunks.append(
                 {
                     "kind": "project",
                     "entry_ref": prj.get("entry_id"),
                     "text_redacted": prj_text,
+                }
+            )
+
+    # Organizations
+    for org in raw_profile.get("organizations", []):
+        org_text = redact_text(org.get("text", "") or org.get("title", ""), name, emails, phones)
+        matching["organizations"].append({**org, "title": org_text, "text": org_text})
+        if org_text:
+            chunks.append(
+                {
+                    "kind": "organization",
+                    "entry_ref": org.get("entry_id"),
+                    "text_redacted": org_text,
                 }
             )
 

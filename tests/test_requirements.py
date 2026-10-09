@@ -1,5 +1,4 @@
 """Tests for Requirement Compiler, Policy Linter, Manual Editing, and Approval Gates (M3)."""
-
 from __future__ import annotations
 
 import json
@@ -7,6 +6,8 @@ from pathlib import Path
 
 import httpx
 import pytest
+
+from src.infrastructure.database import get_connection
 
 
 @pytest.mark.asyncio
@@ -41,7 +42,6 @@ async def test_compile_jd01_covers_concepts(client: httpx.AsyncClient, recruiter
         for c in r.get("concepts", []):
             compiled_concepts.add(c)
 
-    # Core target concepts from JD-01 R1..R10
     target_concepts = [
         "role_family:backend",
         "skill:python",
@@ -90,6 +90,76 @@ async def test_prohibited_criteria_blocks_approval(client: httpx.AsyncClient, re
     err_detail = appr_res.json()["detail"]
     assert err_detail["error"] == "CANNOT_APPROVE_PROHIBITED_CRITERIA"
     assert len(err_detail["violations"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_manual_prohibited_input_rejected(client: httpx.AsyncClient, recruiter_token: str):
+    headers = {"Authorization": f"Bearer {recruiter_token}"}
+
+    # Create job
+    j_res = await client.post(
+        "/api/v1/jobs",
+        json={"title": "Manual Prohibited Test Job", "jd_text": "Normal job description"},
+        headers=headers,
+    )
+    job_id = j_res.json()["id"]
+
+    # Attempt to manually add prohibited criteria: "usia maks. 28 tahun"
+    bad_req = {
+        "requirement_id": "R_BAD",
+        "description": "Kandidat harus memiliki usia maks. 28 tahun",
+        "category": "HARD_SKILLS",
+    }
+    m_res = await client.post(f"/api/v1/jobs/{job_id}/requirements/manual", json=bad_req, headers=headers)
+    assert m_res.status_code == 422
+    data = m_res.json()["detail"]
+    assert data["error"] == "CANNOT_ADD_PROHIBITED_CRITERIA"
+    assert "PROHIBITED_AGE" in data["flags"]
+
+
+@pytest.mark.asyncio
+async def test_editing_approved_requirement_set_creates_new_version(client: httpx.AsyncClient, recruiter_token: str):
+    headers = {"Authorization": f"Bearer {recruiter_token}"}
+
+    # Create job
+    j_res = await client.post(
+        "/api/v1/jobs",
+        json={"title": "Versioning Job", "jd_text": "Version test"},
+        headers=headers,
+    )
+    job_id = j_res.json()["id"]
+
+    # 1. Add requirement to v1 and approve it
+    r1 = {
+        "requirement_id": "R1",
+        "description": "Pengalaman Python 2 tahun",
+        "category": "HARD_SKILLS",
+    }
+    await client.post(f"/api/v1/jobs/{job_id}/requirements/manual", json=r1, headers=headers)
+    appr_v1 = await client.post(f"/api/v1/jobs/{job_id}/requirements/approve", headers=headers)
+    assert appr_v1.status_code == 200
+    assert appr_v1.json()["version"] == 1
+    assert appr_v1.json()["status"] == "APPROVED"
+
+    # 2. Now edit / add a requirement after v1 is approved -> MUST create v2 with DRAFT status!
+    r2 = {
+        "requirement_id": "R2",
+        "description": "Pengalaman Docker container",
+        "category": "HARD_SKILLS",
+    }
+    m_v2 = await client.post(f"/api/v1/jobs/{job_id}/requirements/manual", json=r2, headers=headers)
+    assert m_v2.status_code == 201
+
+    # Verify database has both v1 (APPROVED) and v2 (DRAFT)
+    async with get_connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            "SELECT version, status FROM requirement_sets WHERE job_id = %s ORDER BY version ASC",
+            (job_id,),
+        )
+        rows = await cur.fetchall()
+        assert len(rows) == 2
+        assert rows[0]["version"] == 1 and rows[0]["status"] == "APPROVED"
+        assert rows[1]["version"] == 2 and rows[1]["status"] == "DRAFT"
 
 
 @pytest.mark.asyncio

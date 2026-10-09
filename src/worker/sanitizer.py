@@ -145,6 +145,14 @@ def sanitize_file(content: bytes, filename: str) -> SanitizeResult:
         if has_injection:
             flags.append("PROMPT_INJECTION")
 
+        # Check keyword stuffing
+        tokens = [t.lower() for t in re.findall(r"\b[a-zA-Z]{3,}\b", full_text)]
+        tech_words = ["python", "postgresql", "fastapi", "django", "docker", "kubernetes"]
+        for tw in tech_words:
+            if tokens.count(tw) >= 3 and len(tokens) < 300:
+                flags.append("KEYWORD_STUFFING")
+                break
+
         text_chars = len(re.sub(r"\s+", "", full_text))
 
         # Check Insufficient / Empty content (e.g. E1): text empty AND no images

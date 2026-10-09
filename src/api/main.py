@@ -8,7 +8,7 @@ from collections.abc import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import auth, cvs, health, jobs, requirements
+from src.api.routes import auth, cvs, health, jobs, requirements, screenings
 from src.infrastructure.config import settings
 from src.infrastructure.database import close_db_pool, get_db_pool
 from src.infrastructure.logging import logger
@@ -45,6 +45,7 @@ app.include_router(auth.router)
 app.include_router(jobs.router)
 app.include_router(cvs.router)
 app.include_router(requirements.router)
+app.include_router(screenings.router)
 
 
 @app.get("/")
