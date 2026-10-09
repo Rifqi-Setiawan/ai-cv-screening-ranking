@@ -19,12 +19,14 @@ class LoginRequest(BaseModel):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(req: LoginRequest) -> TokenResponse:
-    async with get_connection() as conn, conn.cursor() as cur:
+    async with get_connection() as conn:
+        cur = conn.cursor()
         await cur.execute(
             "SELECT id, tenant_id, email, password_hash, role, is_active, created_at FROM users WHERE email = %s",
             (req.email,),
         )
         user_row = await cur.fetchone()
+
         if not user_row:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -62,9 +64,9 @@ async def login(req: LoginRequest) -> TokenResponse:
         # Record audit log matching db_schema.sql
         await cur.execute(
             """
-                INSERT INTO audit_logs (tenant_id, actor_id, action, target_type, target_id, metadata)
-                VALUES (%s, %s, 'LOGIN', 'user', %s, '{"method": "password"}'::jsonb)
-                """,
+            INSERT INTO audit_logs (tenant_id, actor_id, action, target_type, target_id, metadata)
+            VALUES (%s, %s, 'LOGIN', 'user', %s, '{"method": "password"}'::jsonb)
+            """,
             (user.tenant_id, user.id, str(user.id)),
         )
         await conn.commit()

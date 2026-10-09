@@ -5,46 +5,57 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 
 import httpx
+import pytest
 import pytest_asyncio
 
 from src.api.main import app
 from src.domain.auth import create_access_token
-from src.infrastructure.database import get_connection, get_db_pool
+from src.domain.models import UserRole
+from src.infrastructure.config import settings
+
+settings.APP_ENV = "test"
+
+DEMO_TENANT_ID = "00000000-0000-0000-0000-000000000001"
 
 
 @pytest_asyncio.fixture
 async def client() -> AsyncGenerator[httpx.AsyncClient, None]:
-    await get_db_pool()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
 
 
-async def _get_user_token(email: str) -> str:
-    async with get_connection() as conn, conn.cursor() as cur:
-        await cur.execute("SELECT id, tenant_id, email, role FROM users WHERE email = %s", (email,))
-        row = await cur.fetchone()
-        assert row is not None, f"Seeded user {email} not found in database"
-        return create_access_token(
-            {
-                "sub": str(row["id"]),
-                "tenant_id": str(row["tenant_id"]),
-                "email": row["email"],
-                "role": row["role"],
-            }
-        )
+@pytest.fixture
+def admin_token() -> str:
+    return create_access_token(
+        {
+            "sub": "adbbfe35-43d1-40ef-a02b-10c975110219",
+            "tenant_id": DEMO_TENANT_ID,
+            "email": "admin@rifqisetiawan.my.id",
+            "role": UserRole.ADMIN.value,
+        }
+    )
 
 
-@pytest_asyncio.fixture
-async def admin_token() -> str:
-    return await _get_user_token("admin@rifqisetiawan.my.id")
+@pytest.fixture
+def recruiter_token() -> str:
+    return create_access_token(
+        {
+            "sub": "ce12fcef-601b-4fb8-b8ed-f3eab5e8de6c",
+            "tenant_id": DEMO_TENANT_ID,
+            "email": "recruiter@rifqisetiawan.my.id",
+            "role": UserRole.RECRUITER.value,
+        }
+    )
 
 
-@pytest_asyncio.fixture
-async def recruiter_token() -> str:
-    return await _get_user_token("recruiter@rifqisetiawan.my.id")
-
-
-@pytest_asyncio.fixture
-async def hiring_manager_token() -> str:
-    return await _get_user_token("manager@rifqisetiawan.my.id")
+@pytest.fixture
+def hiring_manager_token() -> str:
+    return create_access_token(
+        {
+            "sub": "fffb4b73-f806-46df-89b4-3318143ece4a",
+            "tenant_id": DEMO_TENANT_ID,
+            "email": "manager@rifqisetiawan.my.id",
+            "role": UserRole.HIRING_MANAGER.value,
+        }
+    )

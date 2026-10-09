@@ -43,7 +43,7 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User account inactive or not found",
             )
-        return User(
+        user = User(
             id=row["id"],
             tenant_id=row["tenant_id"],
             email=row["email"],
@@ -51,6 +51,7 @@ async def get_current_user(
             is_active=row["is_active"],
             created_at=row["created_at"],
         )
+    return user
 
 
 def require_role(allowed_roles: list[UserRole]) -> Callable:
