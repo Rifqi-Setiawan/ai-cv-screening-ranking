@@ -4,6 +4,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from src.infrastructure.database import get_connection
+
 
 @pytest.mark.asyncio
 async def test_create_job_as_recruiter(client: httpx.AsyncClient, recruiter_token: str):
@@ -22,6 +24,17 @@ async def test_create_job_as_recruiter(client: httpx.AsyncClient, recruiter_toke
     assert data["status"] == "DRAFT"
     assert data["external_ref"] == "JD-01"
 
+    # Verify audit log entry exists
+    async with get_connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            "SELECT action, target_type, target_id FROM audit_logs WHERE action = 'JOB_CREATE' AND target_id = %s",
+            (str(data["id"]),),
+        )
+        audit_row = await cur.fetchone()
+        assert audit_row is not None
+        assert audit_row["action"] == "JOB_CREATE"
+        assert audit_row["target_type"] == "job"
+
 
 @pytest.mark.asyncio
 async def test_create_job_forbidden_for_hiring_manager(
@@ -33,7 +46,6 @@ async def test_create_job_forbidden_for_hiring_manager(
         "jd_text": "Machine learning specialist required.",
     }
     response = await client.post("/api/v1/jobs", json=payload, headers=headers)
-    # Hiring manager cannot create jobs, only view/review
     assert response.status_code == 403
 
 

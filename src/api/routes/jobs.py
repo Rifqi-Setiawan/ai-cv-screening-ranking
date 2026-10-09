@@ -61,6 +61,21 @@ async def create_job(
             ),
         )
         row = await cur.fetchone()
+
+        # Record audit log
+        await cur.execute(
+            """
+            INSERT INTO audit_logs (tenant_id, actor_id, action, target_type, target_id, metadata)
+            VALUES (%s, %s, 'JOB_CREATE', 'job', %s, %s)
+            """,
+            (
+                current_user.tenant_id,
+                current_user.id,
+                str(row["id"]),
+                f'{{"title": "{req.title}", "external_ref": "{req.external_ref}"}}',
+            ),
+        )
+
         await conn.commit()
         return JobResponse(
             id=row["id"],

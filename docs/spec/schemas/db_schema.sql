@@ -139,7 +139,7 @@ CREATE TABLE profile_chunks (
   entry_ref       text,
   text_redacted   text NOT NULL,
   chunk_hash      text NOT NULL,
-  embedding       vector(1024),
+  embedding       vector(384),
   embedding_model text,
   fts             tsvector GENERATED ALWAYS AS (to_tsvector('simple', text_redacted)) STORED
 );
