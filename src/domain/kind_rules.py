@@ -1,4 +1,5 @@
 """Pure functional evaluation rules per requirement kind (02_SCORING Section 4.2)."""
+
 from __future__ import annotations
 
 import re
@@ -139,11 +140,13 @@ def eval_experience_duration(
         else:
             full_intervals.append((s_tot, e_tot))
 
-        evidence.append({
-            "quote": f"{title} ({s_val}..{e_val})",
-            "context": exp.get("context", "experience"),
-            "verified": True,
-        })
+        evidence.append(
+            {
+                "quote": f"{title} ({s_val}..{e_val})",
+                "context": exp.get("context", "experience"),
+                "verified": True,
+            }
+        )
 
     merged_full = merge_intervals(full_intervals)
     merged_intern = merge_intervals(intern_intervals)
@@ -216,7 +219,16 @@ def eval_responsibility(
         target_kws.extend(CONCEPT_ALIASES.get(c, [c.split(":")[-1]]))
 
     # For API building
-    build_verbs = [r"membangun", r"mendesain", r"mengembangkan", r"membuat", r"built", r"designed", r"developed", r"created"]
+    build_verbs = [
+        r"membangun",
+        r"mendesain",
+        r"mengembangkan",
+        r"membuat",
+        r"built",
+        r"designed",
+        r"developed",
+        r"created",
+    ]
     target_terms = [r"rest\s+api", r"microservices", r"layanan\s+mikro", r"api\b"]
 
     evidence = []
@@ -260,7 +272,9 @@ def eval_responsibility(
 
     for prj in profile.get("projects", []):
         p_text = prj.get("text", "")
-        if any(re.search(v, p_text.lower()) for v in build_verbs) and any(re.search(t, p_text.lower()) for t in target_terms):
+        if any(re.search(v, p_text.lower()) for v in build_verbs) and any(
+            re.search(t, p_text.lower()) for t in target_terms
+        ):
             has_building_proj = True
             evidence.append({"quote": p_text[:100], "context": "project", "verified": True})
 
@@ -279,7 +293,22 @@ def eval_education(
     """Evaluates EDUCATION requirements."""
     params = req.get("params", {})
     min_level = params.get("min_level", "S1")
-    strong_fields = [f.lower() for f in params.get("strong_fields", ["teknik informatika", "ilmu komputer", "sistem informasi", "computer science", "informatika", "computer", "psikologi", "manajemen"])]
+    strong_fields = [
+        f.lower()
+        for f in params.get(
+            "strong_fields",
+            [
+                "teknik informatika",
+                "ilmu komputer",
+                "sistem informasi",
+                "computer science",
+                "informatika",
+                "computer",
+                "psikologi",
+                "manajemen",
+            ],
+        )
+    ]
     partial_fields = [f.lower() for f in params.get("partial_fields", ["teknik komputer", "matematika", "rekayasa"])]
 
     level_rank = {"SMA": 1, "SMK": 1, "D3": 2, "D4": 3, "S1": 3, "S2": 4, "S3": 5}
@@ -401,8 +430,14 @@ def eval_leadership(
 ) -> tuple[str, float, dict[str, Any], list[dict[str, Any]], list[str]]:
     """Evaluates LEADERSHIP requirements (memimpin tim teknis != tim sales)."""
     lead_verbs = [
-        r"memimpin\s+.*tim", r"led\s+.*team", r"lead\s+.*team", r"mentoring", r"membimbing",
-        r"\bketua\b", r"\bhead\b", r"\bkoordinator\b",
+        r"memimpin\s+.*tim",
+        r"led\s+.*team",
+        r"lead\s+.*team",
+        r"mentoring",
+        r"membimbing",
+        r"\bketua\b",
+        r"\bhead\b",
+        r"\bkoordinator\b",
     ]
     lead_titles = [r"\blead\b", r"\bhead\b", r"\bmanager\b", r"\bsupervisor\b"]
 
@@ -416,7 +451,9 @@ def eval_leadership(
         rf = classify_role_family(title)
         bullets_text = " ".join(b.get("text", "") for b in exp.get("bullets", []))
 
-        is_lead = any(re.search(v, bullets_text, re.IGNORECASE) for v in lead_verbs) or any(re.search(t, title, re.IGNORECASE) for t in lead_titles)
+        is_lead = any(re.search(v, bullets_text, re.IGNORECASE) for v in lead_verbs) or any(
+            re.search(t, title, re.IGNORECASE) for t in lead_titles
+        )
 
         if is_lead:
             if rf in ("backend", "fullstack", "devops"):

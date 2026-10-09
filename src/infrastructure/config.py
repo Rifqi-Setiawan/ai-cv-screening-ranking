@@ -42,8 +42,8 @@ class Settings(BaseSettings):
     LLM_TEMPERATURE: float = 0.0
 
     # Embedding
-    EMBEDDING_MODEL: str = "paraphrase-multilingual-MiniLM-L12-v2"
-    EMBEDDING_DIM: int = 384
+    EMBEDDING_MODEL: str = "microsoft/harrier-oss-v1-270m"
+    EMBEDDING_DIM: int = 640
 
 
 settings = Settings()

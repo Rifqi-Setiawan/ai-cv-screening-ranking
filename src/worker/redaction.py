@@ -23,9 +23,30 @@ PHONE_REGEX = re.compile(r"(?:\+62|62|08)[0-9\s-]{8,15}")
 
 
 NON_NAME_WORDS = {
-    "fresh", "graduate", "backend", "frontend", "developer", "engineer", "lead", "senior",
-    "junior", "manager", "staff", "intern", "internship", "analyst", "fullstack", "specialist",
-    "supervisor", "executive", "pt", "cv", "indonesia", "jakarta", "bandung", "surabaya",
+    "fresh",
+    "graduate",
+    "backend",
+    "frontend",
+    "developer",
+    "engineer",
+    "lead",
+    "senior",
+    "junior",
+    "manager",
+    "staff",
+    "intern",
+    "internship",
+    "analyst",
+    "fullstack",
+    "specialist",
+    "supervisor",
+    "executive",
+    "pt",
+    "cv",
+    "indonesia",
+    "jakarta",
+    "bandung",
+    "surabaya",
 }
 
 

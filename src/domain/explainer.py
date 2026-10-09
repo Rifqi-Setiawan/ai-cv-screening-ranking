@@ -1,4 +1,5 @@
 """Template-based explanation generator (02_SCORING Section 10)."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -22,12 +23,14 @@ def generate_explanation(
             r = reqs_by_id[rid]
             evs = evidence_map.get(rid, [])
             quote = evs[0].get("quote", "") if evs else ""
-            strengths.append({
-                "requirement_id": rid,
-                "description": r.get("description", ""),
-                "weight": r.get("weight", 0),
-                "quote": quote,
-            })
+            strengths.append(
+                {
+                    "requirement_id": rid,
+                    "description": r.get("description", ""),
+                    "weight": r.get("weight", 0),
+                    "quote": quote,
+                }
+            )
     strengths.sort(key=lambda x: x["weight"], reverse=True)
 
     # 2. Belum Terbukti (NOT_DEMONSTRATED & PARTIAL sorted by weight desc)
@@ -36,13 +39,15 @@ def generate_explanation(
         if st in ("NOT_DEMONSTRATED", "PARTIAL") and rid in reqs_by_id:
             r = reqs_by_id[rid]
             status_text = "Sebagian terpenuhi" if st == "PARTIAL" else "Tidak tercantum di CV"
-            unproven.append({
-                "requirement_id": rid,
-                "description": r.get("description", ""),
-                "state": st,
-                "weight": r.get("weight", 0),
-                "note": f"{status_text} ({r.get('importance', '')})",
-            })
+            unproven.append(
+                {
+                    "requirement_id": rid,
+                    "description": r.get("description", ""),
+                    "state": st,
+                    "weight": r.get("weight", 0),
+                    "note": f"{status_text} ({r.get('importance', '')})",
+                }
+            )
     unproven.sort(key=lambda x: x["weight"], reverse=True)
 
     # 3. Pertanyaan Interview (1 question for each must_have or strong_preference that is not strong)
@@ -51,11 +56,13 @@ def generate_explanation(
         r = reqs_by_id.get(u["requirement_id"], {})
         imp = r.get("importance", "")
         if imp in ("MUST_HAVE", "STRONG_PREFERENCE"):
-            questions.append({
-                "requirement_id": u["requirement_id"],
-                "focus": r.get("description", ""),
-                "question": f"Bisa ceritakan pengalaman atau pemahaman Anda terkait {r.get('description', '')}?",
-            })
+            questions.append(
+                {
+                    "requirement_id": u["requirement_id"],
+                    "focus": r.get("description", ""),
+                    "question": f"Bisa ceritakan pengalaman atau pemahaman Anda terkait {r.get('description', '')}?",
+                }
+            )
 
     return {
         "band": score_res.band,

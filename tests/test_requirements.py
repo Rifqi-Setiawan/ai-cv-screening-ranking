@@ -1,4 +1,5 @@
 """Tests for Requirement Compiler, Policy Linter, Manual Editing, and Approval Gates (M3)."""
+
 from __future__ import annotations
 
 import json

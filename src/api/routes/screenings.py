@@ -1,4 +1,5 @@
 """Screening runs, candidate ranking, comparison, and evaluation export endpoints (M4)."""
+
 from __future__ import annotations
 
 import json
@@ -185,12 +186,14 @@ async def trigger_screening_run(
             score_res = score(states_map, req_set_dict)
             strong_count = sum(1 for v in states_map.values() if v == "STRONG")
 
-            scoring_items.append({
-                "cv_id": cv_id,
-                "file_name": file_name,
-                "result": score_res,
-                "strong_count": strong_count,
-            })
+            scoring_items.append(
+                {
+                    "cv_id": cv_id,
+                    "file_name": file_name,
+                    "result": score_res,
+                    "strong_count": strong_count,
+                }
+            )
             eval_cache[str(cv_id)] = {
                 "cv_id": cv_id,
                 "file_name": file_name,
@@ -440,13 +443,19 @@ async def compare_candidates(
     all_req_ids = sorted(list(set(det1["requirement_states"].keys()) | set(det2["requirement_states"].keys())))
     req_comparison = []
     for rid in all_req_ids:
-        req_comparison.append({
-            "requirement_id": rid,
-            "candidate_1_state": det1["requirement_states"].get(rid),
-            "candidate_2_state": det2["requirement_states"].get(rid),
-            "candidate_1_quote": det1["evidence"].get(rid, [{}])[0].get("quote") if det1["evidence"].get(rid) else "",
-            "candidate_2_quote": det2["evidence"].get(rid, [{}])[0].get("quote") if det2["evidence"].get(rid) else "",
-        })
+        req_comparison.append(
+            {
+                "requirement_id": rid,
+                "candidate_1_state": det1["requirement_states"].get(rid),
+                "candidate_2_state": det2["requirement_states"].get(rid),
+                "candidate_1_quote": det1["evidence"].get(rid, [{}])[0].get("quote")
+                if det1["evidence"].get(rid)
+                else "",
+                "candidate_2_quote": det2["evidence"].get(rid, [{}])[0].get("quote")
+                if det2["evidence"].get(rid)
+                else "",
+            }
+        )
 
     return {
         "candidate_1": {
@@ -517,19 +526,21 @@ async def export_for_evaluator(
             req_states = {row["requirement_id"]: row["state"] for row in await cur.fetchall()}
 
             status_val = r["quality_status"] if r["quality_status"] != "READY" else "SCORED"
-            export_results.append({
-                "file": r["file_name"],
-                "status": status_val,
-                "rank": r["rank"],
-                "band": r["band"],
-                "score": r["final_score"],
-                "raw_score": r["raw_score"],
-                "recommendation": r["recommendation"],
-                "requirement_states": req_states,
-                "metrics": r["metrics"] or {},
-                "flags": r["flags"] or [],
-                "reasons": r["reasons"] or [],
-            })
+            export_results.append(
+                {
+                    "file": r["file_name"],
+                    "status": status_val,
+                    "rank": r["rank"],
+                    "band": r["band"],
+                    "score": r["final_score"],
+                    "raw_score": r["raw_score"],
+                    "recommendation": r["recommendation"],
+                    "requirement_states": req_states,
+                    "metrics": r["metrics"] or {},
+                    "flags": r["flags"] or [],
+                    "reasons": r["reasons"] or [],
+                }
+            )
 
         return {
             "job_id": job_code,

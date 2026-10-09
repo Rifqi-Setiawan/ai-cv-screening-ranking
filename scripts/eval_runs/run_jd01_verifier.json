@@ -214,7 +214,9 @@
       "metrics": {
         "backend_months": 3.0
       },
-      "flags": [],
+      "flags": [
+        "GROUNDING_FAIL"
+      ],
       "reasons": [],
       "rank": 7
     },
@@ -222,8 +224,8 @@
       "file": "M4_qa_automation_en.docx",
       "status": "SCORED",
       "band": "B",
-      "score": 49.0,
-      "raw_score": 49.0,
+      "score": 45.5,
+      "raw_score": 45.5,
       "recommendation": "REVIEW",
       "requirement_states": {
         "R1": "NOT_DEMONSTRATED",
@@ -235,7 +237,7 @@
         "R7": "STRONG",
         "R8": "NOT_DEMONSTRATED",
         "R9": "PARTIAL",
-        "R10": "PARTIAL"
+        "R10": "NOT_DEMONSTRATED"
       },
       "metrics": {
         "backend_months": 0.0
@@ -249,18 +251,18 @@
       "status": "SCORED",
       "band": "C",
       "score": 49.0,
-      "raw_score": 64.0,
+      "raw_score": 52.5,
       "recommendation": "LOW_PRIORITY",
       "requirement_states": {
         "R1": "STRONG",
-        "R2": "STRONG",
+        "R2": "PARTIAL",
         "R3": "NOT_DEMONSTRATED",
         "R4": "NOT_DEMONSTRATED",
         "R5": "STRONG",
         "R6": "NOT_DEMONSTRATED",
         "R7": "STRONG",
         "R8": "NOT_DEMONSTRATED",
-        "R9": "STRONG",
+        "R9": "PARTIAL",
         "R10": "NOT_DEMONSTRATED"
       },
       "metrics": {
@@ -276,12 +278,12 @@
       "file": "S1_senior_backend_id.pdf",
       "status": "SCORED",
       "band": "A",
-      "score": 100.0,
-      "raw_score": 100.0,
+      "score": 92.5,
+      "raw_score": 92.5,
       "recommendation": "SHORTLIST",
       "requirement_states": {
         "R1": "STRONG",
-        "R2": "STRONG",
+        "R2": "PARTIAL",
         "R3": "STRONG",
         "R4": "STRONG",
         "R5": "STRONG",
@@ -326,7 +328,7 @@
         "KEYWORD_STUFFING"
       ],
       "reasons": [],
-      "rank": 3
+      "rank": 2
     },
     {
       "file": "S3_backend_mixed_lang.pdf",
@@ -360,12 +362,12 @@
       "file": "S4_lead_backend_two_column.pdf",
       "status": "SCORED",
       "band": "A",
-      "score": 95.0,
-      "raw_score": 95.0,
+      "score": 87.5,
+      "raw_score": 87.5,
       "recommendation": "SHORTLIST",
       "requirement_states": {
         "R1": "STRONG",
-        "R2": "STRONG",
+        "R2": "PARTIAL",
         "R3": "STRONG",
         "R4": "STRONG",
         "R5": "STRONG",
@@ -383,18 +385,18 @@
         "KEYWORD_STUFFING"
       ],
       "reasons": [],
-      "rank": 2
+      "rank": 3
     },
     {
       "file": "S5_backend_healthtech_id.docx",
       "status": "SCORED",
       "band": "A",
-      "score": 87.5,
-      "raw_score": 87.5,
+      "score": 80.0,
+      "raw_score": 80.0,
       "recommendation": "SHORTLIST",
       "requirement_states": {
         "R1": "STRONG",
-        "R2": "STRONG",
+        "R2": "PARTIAL",
         "R3": "STRONG",
         "R4": "STRONG",
         "R5": "STRONG",

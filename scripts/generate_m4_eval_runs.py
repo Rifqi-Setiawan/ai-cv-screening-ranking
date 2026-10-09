@@ -100,8 +100,8 @@ def evaluate_cv(
 
         flags.extend(flgs)
 
-        # Optional LLM verifier via 9Router
-        if use_verifier and st in ("PARTIAL", "STRONG") and evs:
+        # Optional LLM verifier via 9Router for ambiguous criteria
+        if use_verifier and kind in ("RESPONSIBILITY", "ACHIEVEMENT", "LEADERSHIP") and st in ("PARTIAL", "STRONG") and evs:
             v_st, v_quote, v_flgs = verify_requirement_with_llm(
                 full_text, r, st, [e.get("quote", "") for e in evs]
             )

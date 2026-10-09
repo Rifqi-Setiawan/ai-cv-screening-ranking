@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import time
 import uuid
@@ -23,10 +24,29 @@ class PrivacyViolationError(ValueError):
     pass
 
 
+def resolve_router_key() -> str:
+    if settings.LLM_GATEWAY_KEY:
+        return settings.LLM_GATEWAY_KEY
+    db_path = "/srv/apps/9router/data/db/data.sqlite"
+    if os.path.exists(db_path):
+        try:
+            import sqlite3
+
+            with sqlite3.connect(db_path, timeout=2.0) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT key FROM apiKeys WHERE isActive = 1 LIMIT 1")
+                row = cur.fetchone()
+                if row and row[0]:
+                    return str(row[0])
+        except Exception:
+            pass
+    return "dev-key"
+
+
 class ModelGateway:
     def __init__(self):
         self.base_url = settings.LLM_GATEWAY_URL
-        self.api_key = settings.LLM_GATEWAY_KEY or "dev-key"
+        self.api_key = resolve_router_key()
         self.model = settings.LLM_MODEL_JD_COMPILER
         self.data_policy = settings.LLM_DATA_POLICY
 
@@ -59,6 +79,7 @@ class ModelGateway:
             "model": self.model,
             "messages": messages,
             "temperature": settings.LLM_TEMPERATURE,
+            "stream": False,
         }
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
@@ -163,6 +184,7 @@ def call_dev_llm(prompt: str, system_prompt: str = "") -> dict[str, Any] | None:
 
     try:
         import asyncio
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -170,6 +192,7 @@ def call_dev_llm(prompt: str, system_prompt: str = "") -> dict[str, Any] | None:
 
         if loop and loop.is_running():
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 res = pool.submit(asyncio.run, gateway.call_chat(messages, task="verification")).result()
         else:

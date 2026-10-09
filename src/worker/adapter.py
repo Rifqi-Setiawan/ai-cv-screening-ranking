@@ -296,6 +296,7 @@ def strip_hidden_pdf_spans(content: bytes) -> bytes:
     """Strips micro-font (<4pt) and injection phrases from PDF to prevent evaluation pollution."""
     try:
         import fitz
+
         doc = fitz.open(stream=content, filetype="pdf")
         has_hidden = False
         inj_pats = [

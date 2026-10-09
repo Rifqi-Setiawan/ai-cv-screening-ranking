@@ -1,4 +1,5 @@
 """Unit tests for pure functional kind rules (02_SCORING Section 4.2)."""
+
 from __future__ import annotations
 
 from src.domain.kind_rules import (
@@ -78,7 +79,9 @@ def test_context_hierarchy_dated_job_vs_project_vs_skills_list():
 
     # Case A: in dated experience -> STRONG
     prof_job = {
-        "experiences": [{"title": "Software Engineer", "bullets": [{"text": "Developed microservices with Python FastAPI."}]}],
+        "experiences": [
+            {"title": "Software Engineer", "bullets": [{"text": "Developed microservices with Python FastAPI."}]}
+        ],
         "projects": [],
         "skills": [],
     }

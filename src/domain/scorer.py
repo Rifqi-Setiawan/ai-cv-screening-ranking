@@ -1,4 +1,5 @@
 """Deterministic scoring and ranking engine ported from reference_scorer.py."""
+
 from __future__ import annotations
 
 import hashlib

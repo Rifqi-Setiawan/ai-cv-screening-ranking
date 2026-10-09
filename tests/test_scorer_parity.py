@@ -1,4 +1,5 @@
 """Parity test: port of reference_scorer.py vs golden_dataset/generator/reference_scorer.py."""
+
 from __future__ import annotations
 
 import json
@@ -29,10 +30,16 @@ def test_scorer_parity_1000_combinations():
         ref_res = reference_scorer.score(states, jd1)
         my_res = score(states, jd1)
 
-        assert abs(ref_res.raw_score - my_res.raw_score) < 1e-4, f"Mismatch raw_score at JD-01 #{i}: ref {ref_res.raw_score} vs {my_res.raw_score}"
-        assert abs(ref_res.final_score - my_res.final_score) < 1e-4, f"Mismatch final_score at JD-01 #{i}: ref {ref_res.final_score} vs {my_res.final_score}"
+        assert abs(ref_res.raw_score - my_res.raw_score) < 1e-4, (
+            f"Mismatch raw_score at JD-01 #{i}: ref {ref_res.raw_score} vs {my_res.raw_score}"
+        )
+        assert abs(ref_res.final_score - my_res.final_score) < 1e-4, (
+            f"Mismatch final_score at JD-01 #{i}: ref {ref_res.final_score} vs {my_res.final_score}"
+        )
         assert ref_res.band == my_res.band, f"Mismatch band at JD-01 #{i}: ref {ref_res.band} vs {my_res.band}"
-        assert ref_res.recommendation == my_res.recommendation, f"Mismatch recommendation at JD-01 #{i}: ref {ref_res.recommendation} vs {my_res.recommendation}"
+        assert ref_res.recommendation == my_res.recommendation, (
+            f"Mismatch recommendation at JD-01 #{i}: ref {ref_res.recommendation} vs {my_res.recommendation}"
+        )
 
     # 1,000 combinations for JD-02
     for i in range(1000):
@@ -40,21 +47,27 @@ def test_scorer_parity_1000_combinations():
         ref_res = reference_scorer.score(states, jd2)
         my_res = score(states, jd2)
 
-        assert abs(ref_res.raw_score - my_res.raw_score) < 1e-4, f"Mismatch raw_score at JD-02 #{i}: ref {ref_res.raw_score} vs {my_res.raw_score}"
-        assert abs(ref_res.final_score - my_res.final_score) < 1e-4, f"Mismatch final_score at JD-02 #{i}: ref {ref_res.final_score} vs {my_res.final_score}"
+        assert abs(ref_res.raw_score - my_res.raw_score) < 1e-4, (
+            f"Mismatch raw_score at JD-02 #{i}: ref {ref_res.raw_score} vs {my_res.raw_score}"
+        )
+        assert abs(ref_res.final_score - my_res.final_score) < 1e-4, (
+            f"Mismatch final_score at JD-02 #{i}: ref {ref_res.final_score} vs {my_res.final_score}"
+        )
         assert ref_res.band == my_res.band, f"Mismatch band at JD-02 #{i}: ref {ref_res.band} vs {my_res.band}"
-        assert ref_res.recommendation == my_res.recommendation, f"Mismatch recommendation at JD-02 #{i}: ref {ref_res.recommendation} vs {my_res.recommendation}"
+        assert ref_res.recommendation == my_res.recommendation, (
+            f"Mismatch recommendation at JD-02 #{i}: ref {ref_res.recommendation} vs {my_res.recommendation}"
+        )
 
 
 def test_ranking_tie_breaker_parity():
     jd1 = json.loads(Path("docs/spec/golden_dataset/job_descriptions/JD-01_requirements.approved.json").read_text())
-    
+
     candidates = []
     for cid in ["C1", "C2", "C3", "C4", "C5"]:
         states = {r["requirement_id"]: "STRONG" for r in jd1["requirements"]}
         s_res = score(states, jd1)
         candidates.append({"candidate_id": cid, "file": f"{cid}.pdf", "result": s_res, "strong_count": 10})
-    
+
     ranked = rank(candidates, run_id="run_test")
     assert len(ranked) == 5
     # Deterministic order
