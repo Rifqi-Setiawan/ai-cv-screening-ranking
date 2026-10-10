@@ -203,6 +203,7 @@ async def get_cvs_status(
             "total": len(rows),
             "summary": summary,
             "documents": items,
+            "files": items,
         }
 
 

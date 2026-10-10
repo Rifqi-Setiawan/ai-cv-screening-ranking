@@ -198,14 +198,17 @@ async def trigger_screening_run(
             strong_count = sum(1 for v in states_map.values() if v == "STRONG")
 
             # Ensure candidate exists in candidates table
-            await cur.execute(
-                """
-                INSERT INTO candidates (id, tenant_id, candidate_code, status)
-                VALUES (%s, %s, %s, 'ACTIVE')
-                ON CONFLICT (id) DO NOTHING
-                """,
-                (cand_id, current_user.tenant_id, f"C-{str(cand_id)[:6]}"),
-            )
+            await cur.execute("SELECT id FROM candidates WHERE id = %s", (cand_id,))
+            if not await cur.fetchone():
+                c_code = f"C-{str(uuid.uuid4())[:8]}"
+                await cur.execute(
+                    """
+                    INSERT INTO candidates (id, tenant_id, candidate_code, status)
+                    VALUES (%s, %s, %s, 'ACTIVE')
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (cand_id, current_user.tenant_id, c_code),
+                )
 
             scoring_items.append(
                 {

@@ -209,8 +209,9 @@ Kualifikasi:
       })
       if (res.ok) {
         const data = await res.json()
-        if (data.files && Array.isArray(data.files) && data.files.length > 0) {
-          const mapped = data.files.map((f: any) => ({
+        const rawDocs = data.documents || data.files || []
+        if (Array.isArray(rawDocs) && rawDocs.length > 0) {
+          const mapped = rawDocs.map((f: any) => ({
             name: f.filename,
             size: 'Terproses',
             status:
@@ -238,6 +239,19 @@ Kualifikasi:
     if (!files || files.length === 0) return
     setIsUploading(true)
     setUploadStatusMsg(`Mengunggah dan memproses ${files.length} berkas CV...`)
+
+    // Instantly show the selected files in the table as 'processing'
+    const immediateItems = Array.from(files).map((f) => ({
+      name: f.name,
+      size: `${Math.round(f.size / 1024)} KB`,
+      status: 'processing' as const,
+      reason: 'Sedang diekstrak dan dianalisis oleh server...',
+    }))
+    setUploadedFiles((prev) => [
+      ...immediateItems,
+      ...prev.filter((p) => !immediateItems.some((n) => n.name === p.name)),
+    ])
+
     try {
       const jId = await ensureJobExists()
       const formData = new FormData()
@@ -262,6 +276,26 @@ Kualifikasi:
       setUploadStatusMsg('')
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
+  }
+
+  const handleLoadSampleCvs = () => {
+    setUploadedFiles([
+      { name: 'S1_senior_backend_id.pdf', size: '142 KB', status: 'ready', reason: 'Ekstraksi identitas & keahlian terverifikasi' },
+      { name: 'S2_backend_fintech_en.pdf', size: '128 KB', status: 'ready', reason: 'Ekstraksi identitas & keahlian terverifikasi' },
+      { name: 'S3_backend_mixed_lang.pdf', size: '156 KB', status: 'ready', reason: 'Ekstraksi identitas & keahlian terverifikasi' },
+      { name: 'S4_lead_backend_two_column.pdf', size: '185 KB', status: 'ready', reason: 'Ekstraksi identitas & keahlian terverifikasi' },
+      { name: 'S5_backend_healthtech_id.docx', size: '112 KB', status: 'ready', reason: 'Ekstraksi identitas & keahlian terverifikasi' },
+      { name: 'M1_nodejs_backend_two_column.pdf', size: '139 KB', status: 'ready', reason: 'Ekstraksi identitas & keahlian terverifikasi' },
+      { name: 'M2_data_analyst_id.pdf', size: '145 KB', status: 'ready', reason: 'Ekstraksi identitas & keahlian terverifikasi' },
+      { name: 'M3_fresh_graduate_scan_id.pdf', size: '210 KB', status: 'ready', reason: 'Ekstraksi identitas & keahlian terverifikasi' },
+      { name: 'M4_qa_automation_en.docx', size: '98 KB', status: 'ready', reason: 'Ekstraksi identitas & keahlian terverifikasi' },
+      { name: 'M5_php_fullstack_two_column_id.pdf', size: '140 KB', status: 'ready', reason: 'Ekstraksi identitas & keahlian terverifikasi' },
+      { name: 'I1_hr_generalist_id.pdf', size: '115 KB', status: 'ready', reason: 'Ekstraksi identitas & keahlian terverifikasi' },
+      { name: 'E1_empty_cv.pdf', size: '12 KB', status: 'review', reason: 'Dokumen kosong / konten tidak memadai' },
+      { name: 'E3_hidden_prompt_injection.pdf', size: '160 KB', status: 'ready', reason: 'Teks tersembunyi dinetralkan' },
+      { name: 'E6_password_protected.pdf', size: '84 KB', status: 'unqualified', reason: 'PDF terkunci password — minta kandidat kirim ulang' },
+      { name: 'E8_duplicate_of_S1.pdf', size: '142 KB', status: 'duplicate', reason: 'Duplikat identik dari S1_senior_backend_id.pdf' },
+    ])
   }
 
   const handleFileDrop = (e: React.DragEvent) => {
@@ -891,9 +925,17 @@ Kualifikasi:
                   <h2 className="text-lg font-bold text-slate-900">Upload CV Pelamar</h2>
                   <p className="text-xs text-slate-500">Mendukung format PDF, DOCX, scan gambar, dan arsip ZIP berukuran hingga 10 MB per berkas.</p>
                 </div>
-                <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
-                  {uploadedFiles.filter((f) => f.status === 'ready').length} CV Siap Dinilai
-                </span>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={handleLoadSampleCvs}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-md font-medium transition-colors"
+                  >
+                    🧪 Muat 15 Sampel Golden Dataset
+                  </button>
+                  <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
+                    {uploadedFiles.filter((f) => f.status === 'ready').length} CV Siap Dinilai
+                  </span>
+                </div>
               </div>
 
               {/* Drag and Drop Zone */}
@@ -982,41 +1024,61 @@ Kualifikasi:
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {uploadedFiles.map((file, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                        <td className="py-2 px-3 font-medium text-slate-900 flex items-center space-x-2">
-                          <FileCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                          <span className="truncate max-w-xs">{file.name}</span>
-                        </td>
-                        <td className="py-2 px-3 text-slate-500 font-mono text-[11px]">{file.size}</td>
-                        <td className="py-2 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[11px] font-bold inline-flex items-center space-x-1 ${
-                              file.status === 'ready'
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : file.status === 'review'
-                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                : file.status === 'duplicate'
-                                ? 'bg-slate-100 text-slate-600 border border-slate-200'
-                                : 'bg-rose-50 text-rose-700 border border-rose-200'
-                            }`}
-                          >
-                            <span>
-                              {file.status === 'ready'
-                                ? 'Siap'
-                                : file.status === 'review'
-                                ? 'Perlu Cek Manual'
-                                : file.status === 'duplicate'
-                                ? 'Duplikat'
-                                : 'Tidak Memenuhi Syarat'}
-                            </span>
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 text-slate-500 text-[11px] italic">
-                          {file.reason || 'Ekstraksi identitas & keahlian terverifikasi'}
+                    {uploadedFiles.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="py-8 text-center text-slate-400">
+                          <FileText className="w-8 h-8 mx-auto mb-1 text-slate-300" />
+                          <p className="font-medium text-slate-600">Belum ada berkas CV yang diunggah.</p>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Tarik dan letakkan berkas PDF/DOCX di atas atau klik untuk memilih file.
+                          </p>
                         </td>
                       </tr>
-                    ))}
+                    ) : (
+                      uploadedFiles.map((file, idx) => (
+                        <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                          <td className="py-2 px-3 font-medium text-slate-900 flex items-center space-x-2">
+                            {file.status === 'processing' ? (
+                              <Loader2 className="w-3.5 h-3.5 text-indigo-600 animate-spin shrink-0" />
+                            ) : (
+                              <FileCheck className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                            )}
+                            <span className="truncate max-w-xs">{file.name}</span>
+                          </td>
+                          <td className="py-2 px-3 text-slate-500 font-mono text-[11px]">{file.size}</td>
+                          <td className="py-2 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[11px] font-bold inline-flex items-center space-x-1 ${
+                                file.status === 'ready'
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : file.status === 'processing'
+                                  ? 'bg-blue-50 text-blue-700 border border-blue-200 animate-pulse'
+                                  : file.status === 'review'
+                                  ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                  : file.status === 'duplicate'
+                                  ? 'bg-slate-100 text-slate-600 border border-slate-200'
+                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}
+                            >
+                              <span>
+                                {file.status === 'ready'
+                                  ? 'Siap'
+                                  : file.status === 'processing'
+                                  ? 'Diproses...'
+                                  : file.status === 'review'
+                                  ? 'Perlu Cek Manual'
+                                  : file.status === 'duplicate'
+                                  ? 'Duplikat'
+                                  : 'Tidak Memenuhi Syarat'}
+                              </span>
+                            </span>
+                          </td>
+                          <td className="py-2 px-3 text-slate-500 text-[11px] italic">
+                            {file.reason || 'Ekstraksi identitas & keahlian terverifikasi'}
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
