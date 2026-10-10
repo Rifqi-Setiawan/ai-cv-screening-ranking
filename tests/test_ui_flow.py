@@ -51,7 +51,10 @@ def test_main_ui_flow_and_text_checks(static_server):
         # 2. Screen 1: Setup Lowongan
         assert page.is_visible("text=Setup Lowongan Kerja")
         assert page.is_visible("text=Senior Backend Engineer")
-        page.click("text=Lanjut ke Peninjauan Kriteria")
+        if page.is_visible("text=Ekstrak Kriteria & Lanjut"):
+            page.click("text=Ekstrak Kriteria & Lanjut")
+        else:
+            page.click("text=Lanjut ke Peninjauan Kriteria")
 
         # 3. Screen 1b: Tinjau & Setujui Kriteria
         page.wait_for_selector("text=Tinjau & Setujui Kriteria Lowongan")
@@ -125,3 +128,35 @@ def test_main_ui_flow_and_text_checks(static_server):
         page.click("button:has-text('Batal')")
 
         browser.close()
+
+
+def test_file_input_and_upload_dropzone(static_server):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1366, "height": 768})
+
+        page.goto(static_server)
+        page.wait_for_selector("text=AI CV Screening & Ranking")
+
+        # Navigate to Screen 2
+        page.click("text=Ekstrak Kriteria & Lanjut")
+        page.wait_for_selector("text=Tinjau & Setujui Kriteria Lowongan")
+        page.click("text=Lanjut ke Upload CV")
+        page.wait_for_selector("text=Upload CV Pelamar")
+
+        # Verify input[type='file'] element exists
+        file_input = page.locator("input[type='file']")
+        assert file_input.count() == 1
+        assert ".pdf" in file_input.get_attribute("accept")
+
+        # Set file input with test PDF
+        test_pdf = Path("docs/spec/golden_dataset/cvs/core/S1_senior_backend_id.pdf").resolve()
+        assert test_pdf.exists()
+        file_input.set_input_files(str(test_pdf))
+
+        # Verify dropzone responds to file selection
+        page.wait_for_timeout(500)
+        assert page.is_visible("text=S1_senior_backend_id.pdf")
+
+        browser.close()
+

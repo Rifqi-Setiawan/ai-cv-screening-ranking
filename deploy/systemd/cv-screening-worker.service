@@ -1,7 +1,7 @@
 [Unit]
 Description=CV Screening & Ranking Platform - Async Queue Worker
-After=network.target postgresql-kms.service
-Wants=postgresql-kms.service
+After=network.target
+
 
 [Service]
 Type=simple

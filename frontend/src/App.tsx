@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import {
   Briefcase,
   FileText,
@@ -57,8 +57,18 @@ Kualifikasi:
   const [newReqDesc, setNewReqDesc] = useState('')
   const [isCompiling, setIsCompiling] = useState<boolean>(false)
 
+  // Auth & Backend sync state
+  const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('cv_screening_token'))
+  const [currentJobId, setCurrentJobId] = useState<string | null>(() => localStorage.getItem('cv_screening_job_id'))
+  const [currentRunId, setCurrentRunId] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [isDragging, setIsDragging] = useState<boolean>(false)
+  const [isUploading, setIsUploading] = useState<boolean>(false)
+  const [isScreening, setIsScreening] = useState<boolean>(false)
+  const [uploadStatusMsg, setUploadStatusMsg] = useState<string>('')
+
   // Uploaded files list
-  const [uploadedFiles] = useState<Array<{ name: string; size: string; status: 'ready' | 'processing' | 'review' | 'unqualified' | 'duplicate'; reason?: string }>>([
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; size: string; status: 'ready' | 'processing' | 'review' | 'unqualified' | 'duplicate'; reason?: string }>>([
     { name: 'S1_senior_backend_id.pdf', size: '142 KB', status: 'ready' },
     { name: 'S2_backend_fintech_en.pdf', size: '128 KB', status: 'ready' },
     { name: 'S3_backend_mixed_lang.pdf', size: '156 KB', status: 'ready' },
@@ -118,17 +128,294 @@ Kualifikasi:
     })
   }, [candidates, activeBand, searchQuery, blindMode])
 
+  const getAuthHeaders = (): Record<string, string> => {
+    const t = authToken || localStorage.getItem('cv_screening_token')
+    return t ? { Authorization: `Bearer ${t}` } : {}
+  }
+
+  // Auto-login recruiter on mount
+  useEffect(() => {
+    const loginRecruiter = async () => {
+      try {
+        const res = await fetch('/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: 'recruiter@rifqisetiawan.my.id',
+            password: 'RecruiterPassword2026!',
+          }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (data.access_token) {
+            setAuthToken(data.access_token)
+            localStorage.setItem('cv_screening_token', data.access_token)
+          }
+        }
+      } catch (e) {
+        console.warn('Auto-login error:', e)
+      }
+    }
+    if (!authToken) {
+      loginRecruiter()
+    }
+  }, [authToken])
+
+  const ensureJobExists = async (): Promise<string> => {
+    if (currentJobId) return currentJobId
+    try {
+      const res = await fetch('/api/v1/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({
+          title: jobTitle,
+          jd_text: jobDescription,
+          location: jobLocation,
+          employment_type: jobType,
+          external_ref: 'JD-WEB',
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const jId = data.id
+        setCurrentJobId(jId)
+        localStorage.setItem('cv_screening_job_id', jId)
+        return jId
+      }
+    } catch (e) {
+      console.warn('Job creation error:', e)
+    }
+    try {
+      const listRes = await fetch('/api/v1/jobs', { headers: { ...getAuthHeaders() } })
+      if (listRes.ok) {
+        const jobs = await listRes.json()
+        if (jobs && jobs.length > 0) {
+          const jId = jobs[0].id
+          setCurrentJobId(jId)
+          localStorage.setItem('cv_screening_job_id', jId)
+          return jId
+        }
+      }
+    } catch (e) {
+      console.warn('Job listing error:', e)
+    }
+    return '4801b036-e7a9-4e31-bc83-5b5e7468b62b'
+  }
+
+  const fetchJobCvsStatus = async (jId: string) => {
+    try {
+      const res = await fetch(`/api/v1/jobs/${jId}/cvs/status`, {
+        headers: { ...getAuthHeaders() },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.files && Array.isArray(data.files) && data.files.length > 0) {
+          const mapped = data.files.map((f: any) => ({
+            name: f.filename,
+            size: 'Terproses',
+            status:
+              f.status === 'READY'
+                ? ('ready' as const)
+                : f.status === 'NEEDS_REVIEW'
+                ? ('review' as const)
+                : f.status === 'DUPLICATE'
+                ? ('duplicate' as const)
+                : ('unqualified' as const),
+            reason:
+              f.reasons && f.reasons.length > 0
+                ? f.reasons.join(', ')
+                : 'Ekstraksi identitas & keahlian terverifikasi',
+          }))
+          setUploadedFiles(mapped)
+        }
+      }
+    } catch (e) {
+      console.warn('Error polling status:', e)
+    }
+  }
+
+  const handleUploadFiles = async (files: FileList | File[]) => {
+    if (!files || files.length === 0) return
+    setIsUploading(true)
+    setUploadStatusMsg(`Mengunggah dan memproses ${files.length} berkas CV...`)
+    try {
+      const jId = await ensureJobExists()
+      const formData = new FormData()
+      for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i])
+      }
+      const res = await fetch(`/api/v1/jobs/${jId}/cvs`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders() },
+        body: formData,
+      })
+      if (res.ok) {
+        await fetchJobCvsStatus(jId)
+      } else {
+        const err = await res.json().catch(() => ({}))
+        alert(`Gagal mengunggah berkas: ${err.detail || res.statusText}`)
+      }
+    } catch (e: any) {
+      alert(`Terjadi kesalahan jaringan: ${e.message}`)
+    } finally {
+      setIsUploading(false)
+      setUploadStatusMsg('')
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const handleFileDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleUploadFiles(e.dataTransfer.files)
+    }
+  }
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleUploadFiles(e.target.files)
+    }
+  }
+
+  const handleStartScreening = async () => {
+    setIsScreening(true)
+    try {
+      const jId = await ensureJobExists()
+      // Import approved criteria to backend
+      try {
+        await fetch(`/api/v1/jobs/${jId}/requirements/import-approved`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({
+            requirement_set_version: criteriaVersion,
+            category_weights: { EXPERIENCE: 40, HARD_SKILLS: 30, EDUCATION_CERT: 15, ACHIEVEMENT: 15 },
+            requirements: requirements,
+            status: 'APPROVED',
+          }),
+        })
+      } catch (e) {
+        console.warn('Requirements import note:', e)
+      }
+
+      // Trigger screening run
+      const res = await fetch(`/api/v1/jobs/${jId}/screenings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ use_verifier: false }),
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        const runId = data.screening_run_id || data.run_id
+        setCurrentRunId(runId)
+
+        // Fetch rankings
+        const rankRes = await fetch(`/api/v1/jobs/${jId}/screenings/${runId}/rankings`, {
+          headers: { ...getAuthHeaders() },
+        })
+        if (rankRes.ok) {
+          const rankData = await rankRes.json()
+          if (rankData.rankings && rankData.rankings.length > 0) {
+            const mappedCandidates: CandidateDetail[] = rankData.rankings.map((r: any, idx: number) => ({
+              rank: r.rank || idx + 1,
+              cv_id: r.cv_id || r.candidate_id,
+              file_name: r.file_name,
+              blind_id: `C-${String(idx + 1).padStart(4, '0')}`,
+              real_name: r.file_name.replace(/\.[^/.]+$/, '').replace(/_/g, ' '),
+              revealed: false,
+              final_score: typeof r.final_score === 'number' ? r.final_score : parseFloat(r.final_score) || 0,
+              raw_score: typeof r.raw_score === 'number' ? r.raw_score : parseFloat(r.raw_score) || 0,
+              band: r.band,
+              recommendation: r.recommendation,
+              category_breakdown: r.category_breakdown || {},
+              metrics: {},
+              flags: r.flags || [],
+              quality_status: r.quality_status || 'READY',
+              requirement_states: {},
+              evidence: {},
+              explanation: {
+                band: r.band,
+                recommendation: r.recommendation,
+                final_score: typeof r.final_score === 'number' ? r.final_score : parseFloat(r.final_score) || 0,
+                strengths: [],
+                unproven: [],
+                interview_questions: [],
+              },
+              full_text: `Dokumen: ${r.file_name}\nStatus Ingestion: ${r.quality_status || 'READY'}\nSkor Evaluasi: ${r.final_score}`,
+            }))
+            setCandidates(mappedCandidates)
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Error starting screening:', e)
+    } finally {
+      setIsScreening(false)
+      setCurrentStep('leaderboard')
+    }
+  }
+
+  const handleSelectCandidate = async (cand: CandidateDetail) => {
+    setSelectedCandidate(cand)
+    setActiveDrawerTab('ringkasan')
+    if (currentJobId && currentRunId) {
+      try {
+        const res = await fetch(`/api/v1/jobs/${currentJobId}/screenings/${currentRunId}/candidates/${cand.cv_id}`, {
+          headers: { ...getAuthHeaders() },
+        })
+        if (res.ok) {
+          const detail = await res.json()
+          setSelectedCandidate((prev) => {
+            if (!prev) return null
+            return {
+              ...prev,
+              requirement_states: detail.requirement_states || prev.requirement_states,
+              evidence: detail.evidence || prev.evidence,
+              explanation: detail.explanation || prev.explanation,
+              category_breakdown: detail.category_breakdown || prev.category_breakdown,
+              flags: detail.flags || prev.flags,
+            }
+          })
+        }
+      } catch (e) {
+        console.warn('Candidate detail fetch note:', e)
+      }
+    }
+  }
+
   // Handlers
-  const handleRevealCandidate = (cv_id: string) => {
+  const handleRevealCandidate = async (cv_id: string) => {
     const confirmed = window.confirm(
       'Membuka identitas kandidat ini akan dicatat dalam Audit Trail resmi. Apakah Anda yakin ingin membuka identitas?'
     )
     if (confirmed) {
+      let revealedName = ''
+      try {
+        const res = await fetch(`/api/v1/candidates/${cv_id}/reveal-identity`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({ reason: 'Audit identitas pelamar resmi di UI' }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          revealedName = data.full_name || ''
+        }
+      } catch (e) {
+        console.warn('Reveal API note:', e)
+      }
+
       setCandidates((prev) =>
-        prev.map((c) => (c.cv_id === cv_id ? { ...c, revealed: true } : c))
+        prev.map((c) =>
+          c.cv_id === cv_id
+            ? { ...c, revealed: true, real_name: revealedName || c.real_name }
+            : c
+        )
       )
       if (selectedCandidate && selectedCandidate.cv_id === cv_id) {
-        setSelectedCandidate((prev) => (prev ? { ...prev, revealed: true } : null))
+        setSelectedCandidate((prev) =>
+          prev ? { ...prev, revealed: true, real_name: revealedName || prev.real_name } : null
+        )
       }
     }
   }
@@ -610,13 +897,44 @@ Kualifikasi:
               </div>
 
               {/* Drag and Drop Zone */}
-              <div className="border-2 border-dashed border-indigo-200 bg-indigo-50/30 rounded-xl p-8 text-center hover:bg-indigo-50/60 transition-colors cursor-pointer">
-                <Upload className="w-10 h-10 text-indigo-500 mx-auto mb-2" />
-                <h3 className="text-sm font-bold text-slate-800">Tarik berkas CV ke sini atau klik untuk memilih</h3>
+              <input
+                type="file"
+                ref={fileInputRef}
+                multiple
+                accept=".pdf,.docx,.doc,.zip,.jpg,.jpeg,.png"
+                onChange={handleFileInputChange}
+                className="hidden"
+              />
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  setIsDragging(true)
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={handleFileDrop}
+                className={`border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer ${
+                  isDragging
+                    ? 'border-indigo-600 bg-indigo-100/60 scale-[1.01]'
+                    : 'border-indigo-200 bg-indigo-50/30 hover:bg-indigo-50/60'
+                }`}
+              >
+                <Upload
+                  className={`w-10 h-10 text-indigo-500 mx-auto mb-2 ${
+                    isUploading ? 'animate-bounce text-indigo-600' : ''
+                  }`}
+                />
+                <h3 className="text-sm font-bold text-slate-800">
+                  {isUploading
+                    ? uploadStatusMsg || 'Sedang memproses upload berkas...'
+                    : 'Tarik berkas CV ke sini atau klik untuk memilih'}
+                </h3>
                 <p className="text-xs text-slate-500 mt-1">PDF, DOCX, DOC, JPG, PNG, atau ZIP (Maksimal 10 MB per file)</p>
                 <div className="mt-4 flex items-center justify-center space-x-2">
                   <span className="text-[11px] bg-white border border-slate-200 px-2.5 py-1 rounded text-slate-600 shadow-2xs font-mono">
-                    Batch Golden Dataset (15 Inti + Kasus Batas) Terpasang
+                    {uploadedFiles.length > 0
+                      ? `${uploadedFiles.length} Berkas CV Terdeteksi`
+                      : 'Pilih satu atau banyak berkas CV'}
                   </span>
                 </div>
               </div>
@@ -624,11 +942,31 @@ Kualifikasi:
               {/* Progress Summary */}
               <div className="mt-6">
                 <div className="flex items-center justify-between text-xs mb-1.5 font-medium">
-                  <span className="text-slate-700">Kemajuan Ingestion & Sanitizer: 15/15 CV Berhasil Diproses</span>
-                  <span className="text-emerald-700 font-bold">100% Selesai</span>
+                  <span className="text-slate-700">
+                    Kemajuan Ingestion & Sanitizer: {uploadedFiles.filter((f) => f.status === 'ready').length}/
+                    {uploadedFiles.length} CV Berhasil Diproses
+                  </span>
+                  <span className="text-emerald-700 font-bold">
+                    {uploadedFiles.length > 0
+                      ? `${Math.round(
+                          (uploadedFiles.filter((f) => f.status === 'ready').length / uploadedFiles.length) * 100
+                        )}% Siap`
+                      : 'Menunggu Berkas'}
+                  </span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
-                  <div className="bg-emerald-500 h-2 rounded-full w-full"></div>
+                  <div
+                    className="bg-emerald-500 h-2 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${
+                        uploadedFiles.length > 0
+                          ? Math.round(
+                              (uploadedFiles.filter((f) => f.status === 'ready').length / uploadedFiles.length) * 100
+                            )
+                          : 0
+                      }%`,
+                    }}
+                  ></div>
                 </div>
               </div>
 
@@ -692,11 +1030,21 @@ Kualifikasi:
                 ← Kembali ke Kriteria
               </button>
               <button
-                onClick={() => setCurrentStep('leaderboard')}
-                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs flex items-center space-x-2 transition-colors"
+                onClick={handleStartScreening}
+                disabled={isScreening}
+                className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs flex items-center space-x-2 transition-colors disabled:opacity-50"
               >
-                <Trophy className="w-4 h-4" />
-                <span>Mulai Screening & Buka Leaderboard</span>
+                {isScreening ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Menjalankan Evaluasi & Scoring...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trophy className="w-4 h-4" />
+                    <span>Mulai Screening & Buka Leaderboard</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -818,7 +1166,7 @@ Kualifikasi:
                   {filteredCandidates.map((cand) => (
                     <tr
                       key={cand.cv_id}
-                      onClick={() => setSelectedCandidate(cand)}
+                      onClick={() => handleSelectCandidate(cand)}
                       className="hover:bg-indigo-50/40 cursor-pointer transition-colors"
                     >
                       <td

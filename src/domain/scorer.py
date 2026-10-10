@@ -24,6 +24,10 @@ class ScoreResult:
     category_scores: dict[str, float] = field(default_factory=dict)
     must_have_not_strong: list[str] = field(default_factory=list)
 
+    @property
+    def category_breakdown(self) -> dict[str, float]:
+        return self.category_scores
+
 
 def score(states: dict[str, str], requirement_set: dict[str, Any]) -> ScoreResult:
     reqs = requirement_set["requirements"]
@@ -92,6 +96,6 @@ def rank(items: list[dict[str, Any]], run_id: str = "eval") -> list[dict[str, An
             BAND_ORDER[x["result"].band],
             -x["result"].final_score,
             -x.get("strong_count", 0),
-            tie_break_key(x["candidate_id"], run_id),
+            tie_break_key(str(x.get("candidate_id") or x.get("cv_id")), run_id),
         ),
     )

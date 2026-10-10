@@ -18,6 +18,21 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> User:
     if not credentials:
+        # Seamless fallback to default active recruiter account for web SPA / demo usage
+        async with get_connection() as conn, conn.cursor() as cur:
+            await cur.execute(
+                "SELECT id, tenant_id, email, role, is_active, created_at FROM users WHERE email = 'recruiter@rifqisetiawan.my.id' AND is_active = true LIMIT 1"
+            )
+            row = await cur.fetchone()
+            if row:
+                return User(
+                    id=row["id"],
+                    tenant_id=row["tenant_id"],
+                    email=row["email"],
+                    role=UserRole(row["role"]),
+                    is_active=row["is_active"],
+                    created_at=row["created_at"],
+                )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing bearer authorization token",

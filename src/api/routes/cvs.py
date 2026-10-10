@@ -143,7 +143,10 @@ async def upload_cvs(
     for d in created_docs:
         if d["status"] != "DUPLICATE":
             try:
-                await process_document(uuid.UUID(d["id"]))
+                proc_res = await process_document(uuid.UUID(d["id"]))
+                if proc_res and "status" in proc_res:
+                    d["status"] = proc_res["status"]
+                    d["reasons"] = proc_res.get("reasons", [])
             except Exception as e:
                 logger.error(f"Error processing doc {d['filename']}: {e}")
 

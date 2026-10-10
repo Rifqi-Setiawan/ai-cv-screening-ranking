@@ -37,26 +37,39 @@ async def reveal_identity(
     async with get_connection() as conn:
         cur = conn.cursor()
 
-        # Check candidate in cvs table or candidates table
-        # Try finding in cvs table first
+        # Find candidate identity
         await cur.execute(
             """
-            SELECT id, file_name, matching_profile
-            FROM cvs
-            WHERE id::text = %s OR file_name = %s
+            SELECT c.id, c.candidate_code, ci.full_name, ci.email, ci.phone
+            FROM candidates c
+            LEFT JOIN candidate_identities ci ON ci.candidate_id = c.id
+            WHERE c.id::text = %s OR c.candidate_code = %s
             """,
             (candidate_id, candidate_id),
         )
-        cv_row = await cur.fetchone()
+        cand_row = await cur.fetchone()
 
-        # Also search candidate_identities if exists
         full_name = "Candidate"
         email = None
         phone = None
 
-        if cv_row and cv_row.get("matching_profile"):
-            mp = cv_row["matching_profile"]
-            full_name = mp.get("identity", {}).get("full_name") or cv_row["file_name"]
+        if cand_row:
+            full_name = cand_row["full_name"] or cand_row["candidate_code"]
+            email = cand_row.get("email")
+            phone = cand_row.get("phone")
+        else:
+            # Fallback search documents
+            await cur.execute(
+                """
+                SELECT original_filename
+                FROM documents
+                WHERE id::text = %s
+                """,
+                (candidate_id,),
+            )
+            doc_row = await cur.fetchone()
+            if doc_row:
+                full_name = doc_row["original_filename"]
 
         # Log to audit_logs
         await cur.execute(

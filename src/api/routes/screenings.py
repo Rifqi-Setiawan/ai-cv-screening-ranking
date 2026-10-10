@@ -209,6 +209,7 @@ async def trigger_screening_run(
 
             scoring_items.append(
                 {
+                    "candidate_id": str(cand_id),
                     "cv_id": cand_id,
                     "document_id": doc_id,
                     "file_name": file_name,
@@ -335,7 +336,7 @@ async def get_rankings(
         cur = conn.cursor()
         await cur.execute(
             """
-            SELECT cs.rank, cs.candidate_id as cv_id, d.original_filename as file_name, cs.final_score, cs.raw_score,
+            SELECT cs.rank, cs.candidate_id as cv_id, cs.candidate_id, d.original_filename as file_name, cs.final_score, cs.raw_score,
                    cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status
             FROM candidate_scores cs
             JOIN documents d ON cs.document_id = d.id
@@ -381,10 +382,18 @@ async def get_candidate_detail(
         # Fetch requirements and states
         await cur.execute(
             """
-            SELECT requirement_id, state, confidence
-            FROM requirement_scores
-            WHERE run_id = %s AND candidate_id = %s
-            ORDER BY requirement_id
+            SELECT rs.requirement_id, rs.state, rs.confidence,
+                   COALESCE(r.description, rs.requirement_id) as description,
+                   COALESCE(r.category, 'HARD_SKILLS') as category,
+                   COALESCE(r.kind, 'SKILL') as kind,
+                   COALESCE(r.importance, 'MUST_HAVE') as importance,
+                   COALESCE(r.weight, 10.0) as weight,
+                   r.source_text
+            FROM requirement_scores rs
+            JOIN screening_runs sr ON sr.id = rs.run_id
+            LEFT JOIN requirements r ON r.requirement_set_id = sr.requirement_set_id AND r.requirement_id = rs.requirement_id
+            WHERE rs.run_id = %s AND rs.candidate_id = %s
+            ORDER BY rs.requirement_id
             """,
             (run_id, cv_id),
         )
@@ -405,11 +414,17 @@ async def get_candidate_detail(
             evs = await cur.fetchall()
             ev_map[r["requirement_id"]] = [dict(e) for e in evs]
 
-        # Dummy ScoreResult for explainer
+        # ScoreResult for explainer
+        cat_weights = cand_score["category_breakdown"] or {
+            "EXPERIENCE": 40,
+            "HARD_SKILLS": 30,
+            "EDUCATION_CERT": 15,
+            "ACHIEVEMENT": 15,
+        }
         score_obj = score(
             req_states,
             {
-                "category_weights": cand_score["category_breakdown"],
+                "category_weights": cat_weights,
                 "requirements": [dict(r) for r in req_rows],
             },
         )
@@ -497,7 +512,7 @@ async def export_for_evaluator(
     async with get_connection() as conn:
         cur = conn.cursor()
 
-        await cur.execute("SELECT code FROM jobs WHERE id = %s", (job_id,))
+        await cur.execute("SELECT external_ref as code FROM jobs WHERE id = %s", (job_id,))
         job_row = await cur.fetchone()
         job_code = job_row["code"] if job_row and job_row["code"] else "JD-01"
 

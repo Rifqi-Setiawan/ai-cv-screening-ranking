@@ -107,22 +107,35 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
         identity_rec, matching_profile, chunks = extract_identity_and_redact(raw_profile)
 
         # 5. Create Candidate record
+        # 5. Determine unique candidate_code
         await cur.execute(
-            "SELECT count(*) as cnt FROM candidates WHERE tenant_id = %s",
+            """
+            SELECT COALESCE(MAX(NULLIF(regexp_replace(candidate_code, '\\D', '', 'g'), '')::bigint), 0) + 1 as next_code
+            FROM candidates
+            WHERE tenant_id = %s
+            """,
             (doc["tenant_id"],),
         )
         cnt_row = await cur.fetchone()
-        code_num = (cnt_row["cnt"] if cnt_row else 0) + 1
+        code_num = cnt_row["next_code"] if cnt_row else 1
         candidate_code = f"C-{code_num:04d}"
 
         candidate_id = uuid.uuid4()
-        await cur.execute(
-            """
-            INSERT INTO candidates (id, tenant_id, candidate_code, status)
-            VALUES (%s, %s, %s, 'ACTIVE')
-            """,
-            (candidate_id, doc["tenant_id"], candidate_code),
-        )
+        # Ensure candidate_code uniqueness with collision loop
+        inserted_cand = False
+        while not inserted_cand:
+            try:
+                await cur.execute(
+                    """
+                    INSERT INTO candidates (id, tenant_id, candidate_code, status)
+                    VALUES (%s, %s, %s, 'ACTIVE')
+                    """,
+                    (candidate_id, doc["tenant_id"], candidate_code),
+                )
+                inserted_cand = True
+            except Exception:
+                code_num += 1
+                candidate_code = f"C-{code_num:04d}"
 
         # 6. Save Identity
         other_p_bytes = json.dumps(identity_rec["other_personal"]).encode("utf-8")
@@ -132,6 +145,8 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
                 candidate_id, tenant_id, full_name, email, phone, location_raw, other_personal
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (candidate_id) DO UPDATE SET
+                full_name = EXCLUDED.full_name, email = EXCLUDED.email, phone = EXCLUDED.phone
             """,
             (
                 candidate_id,
@@ -144,8 +159,7 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
             ),
         )
 
-        # 7. Save Candidate Profile
-        profile_id = uuid.uuid4()
+        # 7. Save Candidate Profile (Upsert)
         quality_flags = list(set(san.flags + raw_profile.get("quality", {}).get("warnings", [])))
         await cur.execute(
             """
@@ -153,9 +167,14 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
                 id, tenant_id, document_id, profile, matching_profile, extractor_version, quality
             )
             VALUES (%s, %s, %s, %s, %s, 'cv-extractor-1.0.0', %s)
+            ON CONFLICT (document_id) DO UPDATE SET
+                profile = EXCLUDED.profile,
+                matching_profile = EXCLUDED.matching_profile,
+                quality = EXCLUDED.quality
+            RETURNING id
             """,
             (
-                profile_id,
+                uuid.uuid4(),
                 doc["tenant_id"],
                 doc_id,
                 json.dumps(raw_profile),
@@ -163,6 +182,11 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
                 json.dumps({"flags": quality_flags, "confidence": san.is_valid}),
             ),
         )
+        prof_row = await cur.fetchone()
+        profile_id = prof_row["id"]
+
+        # Clean existing chunks if re-processing
+        await cur.execute("DELETE FROM profile_chunks WHERE profile_id = %s", (profile_id,))
 
         # 8. Generate & Insert Profile Chunks with Embeddings
         chunk_texts = [c["text_redacted"] for c in chunks]
