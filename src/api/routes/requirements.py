@@ -393,3 +393,23 @@ async def approve_requirements(
             "version": approved_row["version"],
             "approved_at": str(approved_row["approved_at"]),
         }
+
+
+class CompilePreviewRequest(BaseModel):
+    jd_text: str
+
+
+preview_router = APIRouter(prefix="/api/v1/requirements", tags=["Requirements"])
+
+
+@preview_router.post("/compile-preview")
+async def compile_preview_endpoint(req: CompilePreviewRequest) -> dict[str, Any]:
+    """Compile raw Job Description text into structured requirements with concept mapping and policy linter."""
+    if not req.jd_text or len(req.jd_text.strip()) < 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Teks Job Description minimal 10 karakter.",
+        )
+    compiled = await compile_job_requirements(req.jd_text)
+    return compiled
+

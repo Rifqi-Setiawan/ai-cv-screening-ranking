@@ -18,6 +18,8 @@ import {
   ChevronRight,
   ShieldAlert,
   Search,
+  Loader2,
+  Sparkles,
 } from 'lucide-react'
 import type { CandidateDetail, Requirement } from './types'
 import { INITIAL_REQUIREMENTS, MOCK_CANDIDATES } from './mockData'
@@ -53,6 +55,7 @@ Kualifikasi:
   const [criteriaApproved, setCriteriaApproved] = useState<boolean>(true)
   const [criteriaVersion, setCriteriaVersion] = useState<number>(1)
   const [newReqDesc, setNewReqDesc] = useState('')
+  const [isCompiling, setIsCompiling] = useState<boolean>(false)
 
   // Uploaded files list
   const [uploadedFiles] = useState<Array<{ name: string; size: string; status: 'ready' | 'processing' | 'review' | 'unqualified' | 'duplicate'; reason?: string }>>([
@@ -155,6 +158,86 @@ Kualifikasi:
     setRequirements([...requirements, newReq])
     setNewReqDesc('')
     setCriteriaApproved(false)
+  }
+
+  const handleCompileFromJd = async () => {
+    if (!jobDescription.trim()) {
+      alert('Silakan masukkan deskripsi lowongan terlebih dahulu.')
+      return
+    }
+    setIsCompiling(true)
+    try {
+      const res = await fetch('/api/v1/requirements/compile-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jd_text: jobDescription }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.requirements && Array.isArray(data.requirements) && data.requirements.length > 0) {
+          setRequirements(data.requirements)
+          setCriteriaVersion(1)
+          setCriteriaApproved(false)
+          setCurrentStep('requirements')
+          return
+        }
+      }
+    } catch (err) {
+      console.warn('Backend compiler API not reachable, using fallback:', err)
+    } finally {
+      setIsCompiling(false)
+    }
+
+    // Client-side parser fallback
+    const lines = jobDescription
+      .split('\n')
+      .map((l) => l.trim().replace(/^[-*•0-9.)]\s*/, ''))
+      .filter((l) => l.length >= 8 && !l.startsWith('#'))
+
+    if (lines.length > 0) {
+      const extracted: Requirement[] = lines.slice(0, 12).map((l, idx) => {
+        const lower = l.toLowerCase()
+        const isExp =
+          idx === 0 ||
+          lower.includes('tahun') ||
+          lower.includes('pengalaman') ||
+          lower.includes('tanggung jawab')
+        const isEdu =
+          lower.includes('pendidikan') ||
+          lower.includes('s1') ||
+          lower.includes('d3') ||
+          lower.includes('sertifikasi')
+        return {
+          requirement_id: `R${idx + 1}`,
+          description: l,
+          category: isExp
+            ? 'EXPERIENCE'
+            : isEdu
+            ? 'EDUCATION_CERT'
+            : 'HARD_SKILLS',
+          kind: isExp
+            ? 'EXPERIENCE_DURATION'
+            : isEdu
+            ? 'EDUCATION'
+            : 'SKILL',
+          importance:
+            idx < 2
+              ? 'MUST_HAVE'
+              : idx < 5
+              ? 'STRONG_PREFERENCE'
+              : 'NICE_TO_HAVE',
+          weight: idx < 2 ? 20 : 10,
+          concepts: [],
+          source_text: l,
+        }
+      })
+      setRequirements(extracted)
+      setCriteriaVersion(1)
+      setCriteriaApproved(false)
+      setCurrentStep('requirements')
+    } else {
+      setCurrentStep('requirements')
+    }
   }
 
   const handleApproveCriteria = () => {
@@ -295,24 +378,45 @@ Kualifikasi:
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Deskripsi Lowongan (Job Description) *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700">Deskripsi Lowongan (Job Description) *</label>
+                  <span className="text-[11px] text-slate-500 flex items-center space-x-1">
+                    <Sparkles className="w-3 h-3 text-indigo-500" />
+                    <span>Kriteria otomatis diekstrak & dikompilasi dari teks ini</span>
+                  </span>
+                </div>
                 <textarea
-                  rows={8}
+                  rows={9}
                   value={jobDescription}
                   onChange={(e) => setJobDescription(e.target.value)}
+                  placeholder="Ketik atau tempel deskripsi lowongan kerja lengkap di sini..."
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-hidden leading-relaxed"
                 />
+                <p className="text-[11px] text-slate-400 mt-1">
+                  💡 Tips: Cantumkan tanggung jawab dan kualifikasi menggunakan tanda strip (-) atau poin baris agar AI & Policy Linter dapat menyusun kriteria terstruktur dengan presisi tinggi.
+                </p>
               </div>
             </div>
 
             <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
               <span className="text-xs text-slate-400">Status Kriteria: {criteriaApproved ? 'Sudah Disetujui (v1)' : 'Draf'}</span>
               <button
-                onClick={() => setCurrentStep('requirements')}
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm rounded-lg shadow-xs flex items-center space-x-2 transition-colors"
+                onClick={handleCompileFromJd}
+                disabled={isCompiling}
+                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-sm rounded-lg shadow-xs flex items-center space-x-2 transition-colors disabled:opacity-50"
               >
-                <span>Lanjut ke Peninjauan Kriteria</span>
-                <ChevronRight className="w-4 h-4" />
+                {isCompiling ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Mengekstrak Kriteria dari JD...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    <span>Ekstrak Kriteria & Lanjut</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -335,6 +439,14 @@ Kualifikasi:
                   <p className="text-xs text-slate-500 mt-0.5">Kriteria disusun secara terstruktur dari deskripsi lowongan dan dapat disesuaikan bobotnya sebelum proses screening.</p>
                 </div>
                 <div className="flex items-center space-x-2">
+                  <button
+                    onClick={handleCompileFromJd}
+                    disabled={isCompiling}
+                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium text-xs rounded-lg border border-slate-200 flex items-center space-x-1.5 transition-colors disabled:opacity-50"
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 ${isCompiling ? 'animate-spin' : ''}`} />
+                    <span>{isCompiling ? 'Mengekstrak...' : 'Kompilasi Ulang dari JD'}</span>
+                  </button>
                   <button
                     onClick={handleApproveCriteria}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs rounded-lg shadow-xs flex items-center space-x-1.5 transition-colors"

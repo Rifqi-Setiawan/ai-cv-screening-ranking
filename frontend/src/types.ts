@@ -1,9 +1,9 @@
 export interface Requirement {
   requirement_id: string
   description: string
-  category: 'EXPERIENCE' | 'HARD_SKILLS' | 'EDUCATION_CERTIFICATION' | 'ACHIEVEMENT_LEADERSHIP'
-  kind: 'EXPERIENCE_DURATION' | 'SKILL' | 'RESPONSIBILITY' | 'EDUCATION' | 'CERTIFICATION' | 'ACHIEVEMENT' | 'LEADERSHIP'
-  importance: 'MUST_HAVE' | 'STRONG_PREFERENCE' | 'NICE_TO_HAVE'
+  category: 'EXPERIENCE' | 'HARD_SKILLS' | 'EDUCATION_CERTIFICATION' | 'EDUCATION_CERT' | 'ACHIEVEMENT_LEADERSHIP' | 'ACHIEVEMENT' | string
+  kind: 'EXPERIENCE_DURATION' | 'SKILL' | 'RESPONSIBILITY' | 'EDUCATION' | 'CERTIFICATION' | 'ACHIEVEMENT' | 'LEADERSHIP' | string
+  importance: 'MUST_HAVE' | 'STRONG_PREFERENCE' | 'NICE_TO_HAVE' | string
   weight: number
   concepts: string[]
   params?: Record<string, any>

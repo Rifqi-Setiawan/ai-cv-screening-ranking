@@ -68,21 +68,24 @@ CONCEPT_RULES = [
 def compile_jd_rule_based(jd_text: str) -> list[dict[str, Any]]:
     """Deterministic fallback parser mapping bullet points and requirements to concept taxonomy."""
     requirements = []
-    lines = [line.strip().lstrip("-*• ") for line in jd_text.splitlines() if line.strip()]
+    raw_lines = [line.strip() for line in jd_text.splitlines() if line.strip()]
 
     matched_concepts: set[str] = set()
     req_idx = 1
 
-    for line in lines:
-        if len(line) < 10 or line.startswith("#"):
+    for orig_line in raw_lines:
+        line = orig_line.lstrip("-*• 0123456789.)").strip()
+        if len(line) < 8 or line.startswith("#"):
             continue
 
+        matched = False
         for pat, concepts, category, kind, default_importance, default_weight in CONCEPT_RULES:
             if re.search(pat, line, re.IGNORECASE):
                 # Avoid duplicate rules for same concept
                 c_key = concepts[0]
                 if c_key in matched_concepts:
-                    continue
+                    matched = True
+                    break
                 matched_concepts.add(c_key)
 
                 # Importance from section header context
@@ -107,7 +110,32 @@ def compile_jd_rule_based(jd_text: str) -> list[dict[str, Any]]:
                     }
                 )
                 req_idx += 1
+                matched = True
                 break
+
+        if not matched and (orig_line.startswith(("-", "*", "•")) or re.match(r"^\d+[\.\)]", orig_line)):
+            lower = line.lower()
+            is_exp = "tahun" in lower or "pengalaman" in lower or "experience" in lower
+            is_edu = any(k in lower for k in ["s1", "s2", "d3", "gelar", "pendidikan", "degree", "sertifikasi", "certified"])
+            cat = "EXPERIENCE" if is_exp else ("EDUCATION_CERT" if is_edu else "HARD_SKILLS")
+            knd = "EXPERIENCE_DURATION" if is_exp else ("EDUCATION" if is_edu else "SKILL")
+            imp = "MUST_HAVE" if ("wajib" in lower or "must" in lower or req_idx <= 2) else "STRONG_PREFERENCE"
+            lint_res = lint_text(line)
+            requirements.append(
+                {
+                    "requirement_id": f"R{req_idx}",
+                    "description": line,
+                    "category": cat,
+                    "kind": knd,
+                    "importance": imp,
+                    "weight": 10,
+                    "concepts": [],
+                    "params": {},
+                    "source_text": line,
+                    "lint_flags": lint_res["prohibited_flags"] + lint_res["risky_flags"],
+                }
+            )
+            req_idx += 1
 
     return requirements
 
@@ -140,10 +168,18 @@ async def compile_job_requirements(jd_text: str, tenant_id: uuid.UUID | None = N
     )
 
     requirements = []
-    if llm_res and isinstance(llm_res.get("requirements"), list) and len(llm_res["requirements"]) >= 5:
+    if llm_res and isinstance(llm_res.get("requirements"), list) and len(llm_res["requirements"]) >= 1:
         for idx, item in enumerate(llm_res["requirements"], 1):
             desc = item.get("description", "")
             r_lint = lint_text(desc)
+            concepts = list(item.get("concepts", []))
+            # Augment with canonical concept rules
+            for pat, c_list, _cat, _knd, _imp, _wt in CONCEPT_RULES:
+                if re.search(pat, desc, re.IGNORECASE) or re.search(pat, item.get("source_text", ""), re.IGNORECASE):
+                    for c in c_list:
+                        if c not in concepts:
+                            concepts.append(c)
+
             requirements.append(
                 {
                     "requirement_id": item.get("requirement_id", f"R{idx}"),
@@ -152,7 +188,7 @@ async def compile_job_requirements(jd_text: str, tenant_id: uuid.UUID | None = N
                     "kind": item.get("kind", "SKILL"),
                     "importance": item.get("importance", "MUST_HAVE"),
                     "weight": item.get("weight", 10),
-                    "concepts": item.get("concepts", []),
+                    "concepts": concepts,
                     "params": item.get("params", {}),
                     "source_text": item.get("source_text", desc),
                     "lint_flags": r_lint["prohibited_flags"] + r_lint["risky_flags"],

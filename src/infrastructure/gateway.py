@@ -122,8 +122,41 @@ class ModelGateway:
                     )
 
                     try:
-                        return json.loads(content_str)
-                    except json.JSONDecodeError:
+                        clean_text = content_str.strip()
+                        # 1. Direct parse
+                        try:
+                            return json.loads(clean_text)
+                        except json.JSONDecodeError:
+                            pass
+
+                        # 2. Markdown code block
+                        m = re.search(r"```(?:json)?\s*([\{\[].*?[\}\]])\s*```", clean_text, re.DOTALL)
+                        if m:
+                            try:
+                                return json.loads(m.group(1))
+                            except json.JSONDecodeError:
+                                pass
+
+                        # 3. Outer curly braces
+                        start = clean_text.find("{")
+                        end = clean_text.rfind("}")
+                        if start != -1 and end != -1 and end > start:
+                            try:
+                                return json.loads(clean_text[start : end + 1])
+                            except json.JSONDecodeError:
+                                pass
+
+                        # 4. Outer square brackets
+                        start_b = clean_text.find("[")
+                        end_b = clean_text.rfind("]")
+                        if start_b != -1 and end_b != -1 and end_b > start_b:
+                            try:
+                                return json.loads(clean_text[start_b : end_b + 1])
+                            except json.JSONDecodeError:
+                                pass
+
+                        return {"raw_content": content_str}
+                    except Exception:
                         return {"raw_content": content_str}
                 else:
                     logger.warning(f"9Router returned HTTP {res.status_code}: {res.text[:200]}")
