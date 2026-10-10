@@ -25,6 +25,7 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
             SELECT id, tenant_id, job_id, original_filename, size_bytes, sha256, storage_key, status
             FROM documents
             WHERE id = %s
+            FOR UPDATE
             """,
             (doc_id,),
         )
@@ -32,6 +33,10 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
         if not doc:
             logger.error(f"Document {doc_id} not found")
             return {"status": "NOT_FOUND"}
+
+        if doc["status"] in ("READY", "REJECTED", "DUPLICATE"):
+            logger.info(f"Document {doc_id} already in terminal state {doc['status']}, skipping.")
+            return {"status": doc["status"]}
 
         vault_file = Path(settings.STORAGE_VAULT_PATH) / str(doc["tenant_id"]) / doc["storage_key"]
         if not vault_file.exists():
@@ -101,41 +106,48 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
             return {"status": "NEEDS_REVIEW", "reasons": san.reasons}
 
         # 3. Extract Candidate Profile via production adapter
-        raw_profile = extract_candidate_profile(content, filename)
-
-        # 4. Separate Identity and Redact Matching Profile
-        identity_rec, matching_profile, chunks = extract_identity_and_redact(raw_profile)
+        try:
+            raw_profile = extract_candidate_profile(content, filename)
+            # 4. Separate Identity and Redact Matching Profile
+            identity_rec, matching_profile, chunks = extract_identity_and_redact(raw_profile)
+        except Exception as e:
+            logger.error(f"Extraction failed for document {filename}: {e}")
+            await cur.execute(
+                """
+                UPDATE documents
+                SET status = 'NEEDS_REVIEW', reasons = ARRAY['EXTRACTION_ERROR: ' || %s]
+                WHERE id = %s
+                """,
+                (str(e)[:100], doc_id),
+            )
+            await conn.commit()
+            return {"status": "NEEDS_REVIEW", "reasons": [f"EXTRACTION_ERROR: {str(e)[:100]}"]}
 
         # 5. Create Candidate record
-        # 5. Determine unique candidate_code
-        await cur.execute(
-            """
-            SELECT COALESCE(MAX(NULLIF(regexp_replace(candidate_code, '\\D', '', 'g'), '')::bigint), 0) + 1 as next_code
-            FROM candidates
-            WHERE tenant_id = %s
-            """,
-            (doc["tenant_id"],),
-        )
-        cnt_row = await cur.fetchone()
-        code_num = cnt_row["next_code"] if cnt_row else 1
-        candidate_code = f"C-{code_num:04d}"
+        # Check if candidate already linked to this document
+        if doc.get("candidate_id"):
+            candidate_id = doc["candidate_id"]
+            await cur.execute("SELECT candidate_code FROM candidates WHERE id = %s", (candidate_id,))
+            cand_row = await cur.fetchone()
+            candidate_code = cand_row["candidate_code"] if cand_row else None
+        else:
+            candidate_id = uuid.uuid4()
+            candidate_code = None
 
-        candidate_id = uuid.uuid4()
-        # Ensure candidate_code uniqueness with collision loop
-        inserted_cand = False
-        while not inserted_cand:
-            try:
-                await cur.execute(
-                    """
-                    INSERT INTO candidates (id, tenant_id, candidate_code, status)
-                    VALUES (%s, %s, %s, 'ACTIVE')
-                    """,
-                    (candidate_id, doc["tenant_id"], candidate_code),
-                )
-                inserted_cand = True
-            except Exception:
-                code_num += 1
-                candidate_code = f"C-{code_num:04d}"
+        if not candidate_code:
+            await cur.execute("SELECT nextval('candidate_code_seq') as seq")
+            seq_row = await cur.fetchone()
+            seq_val = seq_row["seq"] if seq_row and seq_row["seq"] else 1
+            candidate_code = f"C-{seq_val:04d}"
+
+            await cur.execute(
+                """
+                INSERT INTO candidates (id, tenant_id, candidate_code, status)
+                VALUES (%s, %s, %s, 'ACTIVE')
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (candidate_id, doc["tenant_id"], candidate_code),
+            )
 
         # 6. Save Identity
         other_p_bytes = json.dumps(identity_rec["other_personal"]).encode("utf-8")

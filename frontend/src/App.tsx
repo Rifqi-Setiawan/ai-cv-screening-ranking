@@ -213,7 +213,7 @@ Kualifikasi:
         if (Array.isArray(rawDocs) && rawDocs.length > 0) {
           const mapped = rawDocs.map((f: any) => ({
             name: f.filename,
-            size: 'Terproses',
+            size: f.size_bytes ? `${Math.round(f.size_bytes / 1024)} KB` : 'Terproses',
             status:
               f.status === 'READY'
                 ? ('ready' as const)
@@ -221,18 +221,25 @@ Kualifikasi:
                 ? ('review' as const)
                 : f.status === 'DUPLICATE'
                 ? ('duplicate' as const)
+                : (f.status === 'PROCESSING' || f.status === 'RECEIVED')
+                ? ('processing' as const)
                 : ('unqualified' as const),
             reason:
               f.reasons && f.reasons.length > 0
                 ? f.reasons.join(', ')
+                : f.status === 'PROCESSING' || f.status === 'RECEIVED'
+                ? 'Sedang diekstrak dan dianalisis oleh server...'
                 : 'Ekstraksi identitas & keahlian terverifikasi',
           }))
           setUploadedFiles(mapped)
+          const allDone = rawDocs.every((f: any) => f.status !== 'RECEIVED' && f.status !== 'PROCESSING')
+          return allDone
         }
       }
     } catch (e) {
       console.warn('Error polling status:', e)
     }
+    return true
   }
 
   const handleUploadFiles = async (files: FileList | File[]) => {
@@ -265,9 +272,18 @@ Kualifikasi:
       })
       if (res.ok) {
         await fetchJobCvsStatus(jId)
+        let pollCount = 0
+        const pollInterval = setInterval(async () => {
+          pollCount++
+          const allDone = await fetchJobCvsStatus(jId)
+          if (allDone || pollCount >= 30) {
+            clearInterval(pollInterval)
+          }
+        }, 2000)
       } else {
         const err = await res.json().catch(() => ({}))
-        alert(`Gagal mengunggah berkas: ${err.detail || res.statusText}`)
+        const msg = err.detail || err.message || res.statusText || `Server error (${res.status})`
+        alert(`Gagal mengunggah berkas: ${msg}`)
       }
     } catch (e: any) {
       alert(`Terjadi kesalahan jaringan: ${e.message}`)
@@ -985,13 +1001,13 @@ Kualifikasi:
               <div className="mt-6">
                 <div className="flex items-center justify-between text-xs mb-1.5 font-medium">
                   <span className="text-slate-700">
-                    Kemajuan Ingestion & Sanitizer: {uploadedFiles.filter((f) => f.status === 'ready').length}/
+                    Kemajuan Ingestion & Sanitizer: {uploadedFiles.filter((f) => f.status !== 'processing').length}/
                     {uploadedFiles.length} CV Berhasil Diproses
                   </span>
                   <span className="text-emerald-700 font-bold">
                     {uploadedFiles.length > 0
                       ? `${Math.round(
-                          (uploadedFiles.filter((f) => f.status === 'ready').length / uploadedFiles.length) * 100
+                          (uploadedFiles.filter((f) => f.status !== 'processing').length / uploadedFiles.length) * 100
                         )}% Siap`
                       : 'Menunggu Berkas'}
                   </span>
@@ -1003,7 +1019,7 @@ Kualifikasi:
                       width: `${
                         uploadedFiles.length > 0
                           ? Math.round(
-                              (uploadedFiles.filter((f) => f.status === 'ready').length / uploadedFiles.length) * 100
+                              (uploadedFiles.filter((f) => f.status !== 'processing').length / uploadedFiles.length) * 100
                             )
                           : 0
                       }%`,
