@@ -373,14 +373,22 @@ async def get_latest_screening(
         run_id = latest_run["id"]
         await cur.execute(
             """
+            WITH req_summary AS (
+                SELECT candidate_id, jsonb_object_agg(requirement_id, state) as states
+                FROM requirement_scores
+                WHERE run_id = %s
+                GROUP BY candidate_id
+            )
             SELECT cs.rank, cs.candidate_id as cv_id, cs.candidate_id, d.original_filename as file_name, cs.final_score, cs.raw_score,
-                   cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status
+                   cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status,
+                   COALESCE(rs.states, '{}'::jsonb) as requirement_states
             FROM candidate_scores cs
             JOIN documents d ON cs.document_id = d.id
+            LEFT JOIN req_summary rs ON rs.candidate_id = cs.candidate_id
             WHERE cs.run_id = %s
             ORDER BY cs.rank ASC NULLS LAST, cs.final_score DESC
             """,
-            (run_id,),
+            (run_id, run_id),
         )
         rows = await cur.fetchall()
         return {
@@ -407,14 +415,22 @@ async def get_rankings(
         cur = conn.cursor()
         await cur.execute(
             """
+            WITH req_summary AS (
+                SELECT candidate_id, jsonb_object_agg(requirement_id, state) as states
+                FROM requirement_scores
+                WHERE run_id = %s
+                GROUP BY candidate_id
+            )
             SELECT cs.rank, cs.candidate_id as cv_id, cs.candidate_id, d.original_filename as file_name, cs.final_score, cs.raw_score,
-                   cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status
+                   cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status,
+                   COALESCE(rs.states, '{}'::jsonb) as requirement_states
             FROM candidate_scores cs
             JOIN documents d ON cs.document_id = d.id
+            LEFT JOIN req_summary rs ON rs.candidate_id = cs.candidate_id
             WHERE cs.run_id = %s
             ORDER BY cs.rank ASC NULLS LAST, cs.final_score DESC
             """,
-            (run_id,),
+            (run_id, run_id),
         )
         rows = await cur.fetchall()
         return {

@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 
 from src.api.dependencies import get_current_user, require_role
 from src.domain.models import User, UserRole
@@ -22,9 +22,18 @@ from src.worker.processor import process_document
 router = APIRouter(tags=["CV Ingestion"])
 
 
+async def _run_batch_processing(doc_ids: list[uuid.UUID]):
+    for did in doc_ids:
+        try:
+            await process_document(did)
+        except Exception as e:
+            logger.error(f"Async processing error for doc {did}: {e}")
+
+
 @router.post("/api/v1/jobs/{job_id}/cvs", status_code=status.HTTP_202_ACCEPTED)
 async def upload_cvs(
     job_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     files: list[UploadFile] = File(...),
     current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.RECRUITER])),
 ) -> dict[str, Any]:
@@ -143,16 +152,10 @@ async def upload_cvs(
 
         await conn.commit()
 
-    # Process immediately in background/inline for responsiveness
-    for d in created_docs:
-        if d["status"] != "DUPLICATE":
-            try:
-                proc_res = await process_document(uuid.UUID(d["id"]))
-                if proc_res and "status" in proc_res:
-                    d["status"] = proc_res["status"]
-                    d["reasons"] = proc_res.get("reasons", [])
-            except Exception as e:
-                logger.error(f"Error processing doc {d['filename']}: {e}")
+    # Dispatch asynchronous background extraction to prevent HTTP timeout
+    pending_ids = [uuid.UUID(d["id"]) for d in created_docs if d["status"] != "DUPLICATE"]
+    if pending_ids:
+        background_tasks.add_task(_run_batch_processing, pending_ids)
 
     return {
         "status": "ACCEPTED",

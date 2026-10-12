@@ -418,7 +418,7 @@ Kualifikasi:
             metrics: {},
             flags: r.flags || [],
             quality_status: r.quality_status || 'READY',
-            requirement_states: {},
+            requirement_states: r.requirement_states || {},
             evidence: {},
             explanation: {
               band: r.band,
