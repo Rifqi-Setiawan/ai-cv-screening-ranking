@@ -210,7 +210,11 @@ Kualifikasi:
                 ? ('processing' as const)
                 : ('unqualified' as const),
             reason:
-              f.reasons && f.reasons.length > 0
+              f.duplicate_of
+                ? `Duplikat dari: ${f.duplicate_of}`
+                : f.status === 'DUPLICATE'
+                ? 'Berkas duplikat identik (sudah diunggah sebelumnya)'
+                : f.reasons && f.reasons.length > 0
                 ? f.reasons.join(', ')
                 : f.status === 'PROCESSING' || f.status === 'RECEIVED'
                 ? 'Sedang diekstrak dan dianalisis oleh server...'
@@ -313,6 +317,25 @@ Kualifikasi:
       { name: 'E6_password_protected.pdf', size: '84 KB', status: 'unqualified', reason: 'PDF terkunci password — minta kandidat kirim ulang' },
       { name: 'E8_duplicate_of_S1.pdf', size: '142 KB', status: 'duplicate', reason: 'Duplikat identik dari S1_senior_backend_id.pdf' },
     ])
+  }
+
+  const handleClearUploadedCvs = async () => {
+    if (!confirm('Apakah Anda yakin ingin mengosongkan semua berkas CV yang telah diunggah untuk lowongan ini?')) return
+    try {
+      const jId = await ensureJobExists()
+      const res = await fetch(`/api/v1/jobs/${jId}/cvs`, {
+        method: 'DELETE',
+        headers: { ...getAuthHeaders() },
+      })
+      if (res.ok) {
+        setUploadedFiles([])
+        setCandidates([])
+      } else {
+        alert('Gagal mengosongkan berkas CV dari server.')
+      }
+    } catch (e: any) {
+      alert(`Terjadi kesalahan: ${e.message}`)
+    }
   }
 
   const handleFileDrop = (e: React.DragEvent) => {
@@ -943,6 +966,16 @@ Kualifikasi:
                   <p className="text-xs text-slate-500">Mendukung format PDF, DOCX, scan gambar, dan arsip ZIP berukuran hingga 10 MB per berkas.</p>
                 </div>
                 <div className="flex items-center space-x-2">
+                  {uploadedFiles.length > 0 && (
+                    <button
+                      onClick={handleClearUploadedCvs}
+                      className="text-xs text-rose-600 hover:text-rose-800 bg-rose-50 border border-rose-200 px-2.5 py-1 rounded-md font-medium transition-colors flex items-center space-x-1"
+                      title="Hapus semua berkas CV yang telah diunggah untuk lowongan ini"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Kosongkan Berkas</span>
+                    </button>
+                  )}
                   <button
                     onClick={handleLoadSampleCvs}
                     className="text-xs text-indigo-600 hover:text-indigo-800 bg-indigo-50 border border-indigo-200 px-2.5 py-1 rounded-md font-medium transition-colors"
@@ -952,6 +985,11 @@ Kualifikasi:
                   <span className="text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
                     {uploadedFiles.filter((f) => f.status === 'ready').length} CV Siap Dinilai
                   </span>
+                  {uploadedFiles.some((f) => f.status === 'duplicate') && (
+                    <span className="text-xs font-medium text-slate-600 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-md">
+                      {uploadedFiles.filter((f) => f.status === 'duplicate').length} Duplikat Diabaikan
+                    </span>
+                  )}
                 </div>
               </div>
 

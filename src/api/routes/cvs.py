@@ -211,6 +211,56 @@ async def get_cvs_status(
         }
 
 
+@router.delete("/api/v1/jobs/{job_id}/cvs", status_code=status.HTTP_200_OK)
+async def clear_job_cvs(
+    job_id: uuid.UUID,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.RECRUITER])),
+) -> dict[str, Any]:
+    """Clears all uploaded documents, profiles, and score artifacts for a job."""
+    async with get_connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
+            DELETE FROM candidate_scores
+            WHERE document_id IN (SELECT id FROM documents WHERE job_id = %s AND tenant_id = %s)
+            """,
+            (job_id, current_user.tenant_id),
+        )
+        await cur.execute(
+            """
+            DELETE FROM profile_chunks
+            WHERE profile_id IN (
+                SELECT id FROM candidate_profiles 
+                WHERE document_id IN (SELECT id FROM documents WHERE job_id = %s AND tenant_id = %s)
+            )
+            """,
+            (job_id, current_user.tenant_id),
+        )
+        await cur.execute(
+            """
+            DELETE FROM candidate_profiles
+            WHERE document_id IN (SELECT id FROM documents WHERE job_id = %s AND tenant_id = %s)
+            """,
+            (job_id, current_user.tenant_id),
+        )
+        await cur.execute(
+            """
+            UPDATE documents SET duplicate_of = NULL
+            WHERE job_id = %s AND tenant_id = %s
+            """,
+            (job_id, current_user.tenant_id),
+        )
+        await cur.execute(
+            """
+            DELETE FROM documents
+            WHERE job_id = %s AND tenant_id = %s
+            """,
+            (job_id, current_user.tenant_id),
+        )
+        await conn.commit()
+
+    return {"status": "SUCCESS", "message": "All CVs for this job opening have been cleared successfully."}
+
+
 @router.get("/api/v1/jobs/{job_id}/extraction-export")
 @router.get("/api/v1/jobs/{job_id}/cvs/extraction-export")
 async def export_extractions(
