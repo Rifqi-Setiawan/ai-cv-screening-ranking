@@ -87,9 +87,12 @@ Kualifikasi:
     const flags: string[] = []
     requirements.forEach((r) => {
       const txt = (r.description + ' ' + (r.source_text || '')).toLowerCase()
-      if (/\busia\b|\bumur\b|maks\.\s*\d+|max\s*\d+\s*tahun/.test(txt)) flags.push(`Kriteria usia (${r.requirement_id}): Tidak boleh digunakan`)
-      if (/\bpria\b|\bwanita\b|\bgender\b|\blaki-laki\b|\bperempuan\b/.test(txt)) flags.push(`Kriteria gender (${r.requirement_id}): Tidak boleh digunakan`)
-      if (/menarik|penampilan|good looking|tinggi|berat/.test(txt)) flags.push(`Kriteria penampilan (${r.requirement_id}): Tidak boleh digunakan`)
+      if (/menarik|penampilan|good looking|tinggi\s+badan|berat\s+badan/.test(txt)) {
+        flags.push(`Kriteria penampilan fisik (${r.requirement_id}): Tidak boleh digunakan`)
+      }
+      if (/\bagama\b|\bmuslim\b|\bkristen\b|\bkatolik\b|\bhindu\b|\bbuddha\b/.test(txt)) {
+        flags.push(`Kriteria agama (${r.requirement_id}): Tidak boleh digunakan`)
+      }
     })
     return flags
   }, [requirements])

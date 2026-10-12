@@ -6,24 +6,6 @@ import re
 from typing import Any
 
 PROHIBITED_RULES = {
-    "age": [
-        r"\busia\b",
-        r"\bumur\b",
-        r"maks(?:imal)?\.?\s*\d+\s*tahun",
-        r"max(?:imum)?\.?\s*\d+\s*years",
-        r"\bage\b",
-        r"kelahiran\s+tahun",
-        r"fresh\s+graduate\s+maksimal",
-    ],
-    "gender": [
-        r"\bpria\b",
-        r"\bwanita\b",
-        r"\blaki-laki\b",
-        r"\bperempuan\b",
-        r"\bmale\b",
-        r"\bfemale\b",
-        r"jenis\s+kelamin",
-    ],
     "appearance": [
         r"berpenampilan\s+menarik",
         r"good\s+looking",
@@ -35,6 +17,7 @@ PROHIBITED_RULES = {
     ],
     "religion": [
         r"\bagama\b",
+        r"\bberagama\b",
         r"\bmuslim\b",
         r"\bmuslimah\b",
         r"\bkristen\b",
@@ -70,7 +53,7 @@ PROHIBITED_RULES = {
 }
 
 RISKY_RULES = {
-    "institution": [r"lulusan\s+universitas", r"\bptn\b", r"kampus\s+ternama", r"top\s+university"],
+    "institution": [r"\bptn\b", r"kampus\s+ternama", r"top\s+university", r"universitas\s+terkemuka"],
     "gpa": [r"ipk\s+minimal", r"ipk\s+min", r"gpa\s+minimum", r"minimum\s+gpa"],
     "domicile": [r"\bdomisili\b", r"\bberdomisili\b"],
 }

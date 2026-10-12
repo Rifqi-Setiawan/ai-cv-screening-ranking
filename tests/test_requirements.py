@@ -62,7 +62,7 @@ async def test_compile_jd01_covers_concepts(client: httpx.AsyncClient, recruiter
 @pytest.mark.asyncio
 async def test_prohibited_criteria_blocks_approval(client: httpx.AsyncClient, recruiter_token: str):
     headers = {"Authorization": f"Bearer {recruiter_token}"}
-    prohibited_jd = "Dibutuhkan staf dengan kriteria: usia maks. 28 tahun, pria, berpenampilan menarik."
+    prohibited_jd = "Dibutuhkan staf dengan kriteria: berpenampilan menarik, good looking, dan beragama tertentu."
 
     # Create job with prohibited text
     j_res = await client.post(
@@ -78,11 +78,10 @@ async def test_prohibited_criteria_blocks_approval(client: httpx.AsyncClient, re
     assert c_res.status_code == 201
     c_data = c_res.json()
 
-    # Must detect 3 prohibited flags
+    # Must detect prohibited flags for appearance & religion
     prohibited = c_data["prohibited_flags"]
-    assert "PROHIBITED_AGE" in prohibited
-    assert "PROHIBITED_GENDER" in prohibited
     assert "PROHIBITED_APPEARANCE" in prohibited
+    assert "PROHIBITED_RELIGION" in prohibited
     assert c_data["is_valid"] is False
 
     # Try to approve -> MUST be blocked with HTTP 422
@@ -91,6 +90,28 @@ async def test_prohibited_criteria_blocks_approval(client: httpx.AsyncClient, re
     err_detail = appr_res.json()["detail"]
     assert err_detail["error"] == "CANNOT_APPROVE_PROHIBITED_CRITERIA"
     assert len(err_detail["violations"]) >= 1
+
+
+@pytest.mark.asyncio
+async def test_age_gender_and_fresh_grad_allowed(client: httpx.AsyncClient, recruiter_token: str):
+    headers = {"Authorization": f"Bearer {recruiter_token}"}
+    allowed_jd = "Dibutuhkan Backend Engineer: usia maks. 28 tahun, pria atau wanita, fresh graduate atau lulus S1."
+
+    # Create job
+    j_res = await client.post(
+        "/api/v1/jobs",
+        json={"title": "Age and Gender Allowed Job", "jd_text": allowed_jd},
+        headers=headers,
+    )
+    assert j_res.status_code == 201
+    job_id = j_res.json()["id"]
+
+    # Compile requirements -> MUST be valid (no prohibited flags)
+    c_res = await client.post(f"/api/v1/jobs/{job_id}/requirements/compile", headers=headers)
+    assert c_res.status_code == 201
+    c_data = c_res.json()
+    assert c_data["is_valid"] is True
+    assert len(c_data["prohibited_flags"]) == 0
 
 
 @pytest.mark.asyncio
@@ -105,17 +126,17 @@ async def test_manual_prohibited_input_rejected(client: httpx.AsyncClient, recru
     )
     job_id = j_res.json()["id"]
 
-    # Attempt to manually add prohibited criteria: "usia maks. 28 tahun"
+    # Attempt to manually add prohibited criteria: "berpenampilan menarik dan good looking"
     bad_req = {
         "requirement_id": "R_BAD",
-        "description": "Kandidat harus memiliki usia maks. 28 tahun",
+        "description": "Kandidat harus berpenampilan menarik dan good looking",
         "category": "HARD_SKILLS",
     }
     m_res = await client.post(f"/api/v1/jobs/{job_id}/requirements/manual", json=bad_req, headers=headers)
     assert m_res.status_code == 422
     data = m_res.json()["detail"]
     assert data["error"] == "CANNOT_ADD_PROHIBITED_CRITERIA"
-    assert "PROHIBITED_AGE" in data["flags"]
+    assert "PROHIBITED_APPEARANCE" in data["flags"]
 
 
 @pytest.mark.asyncio
