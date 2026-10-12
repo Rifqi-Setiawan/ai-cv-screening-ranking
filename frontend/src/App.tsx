@@ -117,33 +117,34 @@ Kualifikasi:
     return t ? { Authorization: `Bearer ${t}` } : {}
   }
 
-  // Auto-login recruiter on mount
-  useEffect(() => {
-    const loginRecruiter = async () => {
-      try {
-        const res = await fetch('/api/v1/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: 'recruiter@rifqisetiawan.my.id',
-            password: 'RecruiterPassword2026!',
-          }),
-        })
-        if (res.ok) {
-          const data = await res.json()
-          if (data.access_token) {
-            setAuthToken(data.access_token)
-            localStorage.setItem('cv_screening_token', data.access_token)
-          }
+  // Auto-login recruiter on mount & handle token refresh
+  const loginRecruiter = async (): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: 'recruiter@rifqisetiawan.my.id',
+          password: 'RecruiterPassword2026!',
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.access_token) {
+          setAuthToken(data.access_token)
+          localStorage.setItem('cv_screening_token', data.access_token)
+          return data.access_token
         }
-      } catch (e) {
-        console.warn('Auto-login error:', e)
       }
+    } catch (e) {
+      console.warn('Auto-login error:', e)
     }
-    if (!authToken) {
-      loginRecruiter()
-    }
-  }, [authToken])
+    return null
+  }
+
+  useEffect(() => {
+    loginRecruiter()
+  }, [])
 
   const ensureJobExists = async (): Promise<string> => {
     if (currentJobId) return currentJobId
@@ -249,11 +250,27 @@ Kualifikasi:
       for (let i = 0; i < files.length; i++) {
         formData.append('files', files[i])
       }
-      const res = await fetch(`/api/v1/jobs/${jId}/cvs`, {
+      let currentHeaders = getAuthHeaders()
+      let res = await fetch(`/api/v1/jobs/${jId}/cvs`, {
         method: 'POST',
-        headers: { ...getAuthHeaders() },
+        headers: { ...currentHeaders },
         body: formData,
       })
+
+      // Automatic recovery if token is expired or unauthorized
+      if (res.status === 401) {
+        console.warn('Token expired or unauthorized, auto-refreshing token...')
+        localStorage.removeItem('cv_screening_token')
+        const freshToken = await loginRecruiter()
+        if (freshToken) {
+          res = await fetch(`/api/v1/jobs/${jId}/cvs`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${freshToken}` },
+            body: formData,
+          })
+        }
+      }
+
       if (res.ok) {
         await fetchJobCvsStatus(jId)
         let pollCount = 0
