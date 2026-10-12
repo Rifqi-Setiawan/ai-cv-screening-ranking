@@ -22,7 +22,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import type { CandidateDetail, Requirement } from './types'
-import { INITIAL_REQUIREMENTS, MOCK_CANDIDATES } from './mockData'
+import { INITIAL_REQUIREMENTS } from './mockData'
 
 export default function App() {
   // Navigation & Workflow state
@@ -68,26 +68,10 @@ Kualifikasi:
   const [uploadStatusMsg, setUploadStatusMsg] = useState<string>('')
 
   // Uploaded files list
-  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; size: string; status: 'ready' | 'processing' | 'review' | 'unqualified' | 'duplicate'; reason?: string }>>([
-    { name: 'S1_senior_backend_id.pdf', size: '142 KB', status: 'ready' },
-    { name: 'S2_backend_fintech_en.pdf', size: '128 KB', status: 'ready' },
-    { name: 'S3_backend_mixed_lang.pdf', size: '156 KB', status: 'ready' },
-    { name: 'S4_lead_backend_two_column.pdf', size: '185 KB', status: 'ready' },
-    { name: 'S5_backend_healthtech_id.docx', size: '112 KB', status: 'ready' },
-    { name: 'M1_nodejs_backend_two_column.pdf', size: '139 KB', status: 'ready' },
-    { name: 'M2_data_analyst_id.pdf', size: '145 KB', status: 'ready' },
-    { name: 'M3_fresh_graduate_scan_id.pdf', size: '210 KB', status: 'ready' },
-    { name: 'M4_qa_automation_en.docx', size: '98 KB', status: 'ready' },
-    { name: 'M5_php_fullstack_two_column_id.pdf', size: '140 KB', status: 'ready' },
-    { name: 'I1_hr_generalist_id.pdf', size: '115 KB', status: 'ready' },
-    { name: 'E1_empty_cv.pdf', size: '12 KB', status: 'review', reason: 'Dokumen kosong / konten tidak memadai' },
-    { name: 'E3_hidden_prompt_injection.pdf', size: '160 KB', status: 'ready', reason: 'Teks tersembunyi dinetralkan' },
-    { name: 'E6_password_protected.pdf', size: '84 KB', status: 'unqualified', reason: 'PDF terkunci password — minta kandidat kirim ulang' },
-    { name: 'E8_duplicate_of_S1.pdf', size: '142 KB', status: 'duplicate', reason: 'Duplikat identik dari S1_senior_backend_id.pdf' },
-  ])
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; size: string; status: 'ready' | 'processing' | 'review' | 'unqualified' | 'duplicate'; reason?: string }>>([])
 
   // Candidates & Leaderboard state
-  const [candidates, setCandidates] = useState<CandidateDetail[]>(MOCK_CANDIDATES)
+  const [candidates, setCandidates] = useState<CandidateDetail[]>([])
   const [activeBand, setActiveBand] = useState<'ALL' | 'A' | 'B' | 'C' | 'MANUAL'>('ALL')
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateDetail | null>(null)
@@ -1241,7 +1225,18 @@ Kualifikasi:
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredCandidates.map((cand) => (
+                  {filteredCandidates.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                        <Trophy className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                        <p className="font-medium text-slate-600">Belum ada hasil screening kandidat.</p>
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          Unggah berkas CV di menu Upload CV, lalu klik &quot;Mulai Screening&quot; untuk menjalankan evaluasi objektif.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredCandidates.map((cand) => (
                     <tr
                       key={cand.cv_id}
                       onClick={() => handleSelectCandidate(cand)}
@@ -1364,7 +1359,8 @@ Kualifikasi:
                         </select>
                       </td>
                     </tr>
-                  ))}
+                  ))
+                )}
                 </tbody>
               </table>
             </div>
