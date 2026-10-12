@@ -16,10 +16,13 @@ async def list_jobs(current_user: User = Depends(get_current_user)) -> list[JobR
     async with get_connection() as conn, conn.cursor() as cur:
         await cur.execute(
             """
-                SELECT id, tenant_id, title, status, location, employment_type, external_ref, created_at
-                FROM jobs
-                WHERE tenant_id = %s
-                ORDER BY created_at DESC
+                SELECT j.id, j.tenant_id, j.title, j.status, j.location, j.employment_type, j.external_ref, j.created_at,
+                       count(d.id) as cv_count
+                FROM jobs j
+                LEFT JOIN documents d ON d.job_id = j.id
+                WHERE j.tenant_id = %s
+                GROUP BY j.id, j.tenant_id, j.title, j.status, j.location, j.employment_type, j.external_ref, j.created_at
+                ORDER BY j.created_at DESC
                 """,
             (current_user.tenant_id,),
         )
@@ -34,6 +37,7 @@ async def list_jobs(current_user: User = Depends(get_current_user)) -> list[JobR
                 employment_type=r["employment_type"],
                 external_ref=r["external_ref"],
                 created_at=r["created_at"],
+                cv_count=r["cv_count"],
             )
             for r in rows
         ]

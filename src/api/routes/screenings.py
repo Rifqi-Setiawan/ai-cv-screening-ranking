@@ -241,8 +241,28 @@ async def trigger_screening_run(
         for str_cid, c_data in eval_cache.items():
             cv_id_val = c_data["cv_id"]
             doc_id_val = c_data["document_id"]
-            cand_rank = rank_lookup.get(str_cid)
+            cand_rank = rank_lookup.get(str_cid, 999)
             s_res = c_data["score_res"]
+
+            # Ensure candidate record exists in `candidates` table before inserting score
+            await cur.execute("SELECT id FROM candidates WHERE id = %s", (cv_id_val,))
+            if not await cur.fetchone():
+                await cur.execute("SELECT nextval('candidate_code_seq') as seq")
+                seq_row = await cur.fetchone()
+                seq_val = seq_row["seq"] if seq_row and seq_row["seq"] else 1
+                cand_code = f"C-{seq_val:04d}"
+                await cur.execute(
+                    """
+                    INSERT INTO candidates (id, tenant_id, candidate_code, status)
+                    VALUES (%s, %s, %s, 'ACTIVE')
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    (cv_id_val, current_user.tenant_id, cand_code),
+                )
+                await cur.execute(
+                    "UPDATE documents SET candidate_id = %s WHERE id = %s AND candidate_id IS NULL",
+                    (cv_id_val, doc_id_val),
+                )
 
             raw_sc = s_res.raw_score if s_res else 0.0
             fin_sc = s_res.final_score if s_res else 0.0
@@ -325,6 +345,54 @@ async def trigger_screening_run(
             "as_of": payload.as_of,
             "total_candidates": len(cv_rows),
             "scored_candidates": len(scoring_items),
+        }
+
+
+@router.get("/latest")
+async def get_latest_screening(
+    job_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Returns the latest completed screening run and its rankings for a job."""
+    async with get_connection() as conn:
+        cur = conn.cursor()
+        await cur.execute(
+            """
+            SELECT id, status, as_of, started_at, finished_at
+            FROM screening_runs
+            WHERE job_id = %s AND status = 'DONE'
+            ORDER BY started_at DESC NULLS LAST
+            LIMIT 1
+            """,
+            (job_id,),
+        )
+        latest_run = await cur.fetchone()
+        if not latest_run:
+            return {"job_id": str(job_id), "latest_run": None, "rankings": []}
+
+        run_id = latest_run["id"]
+        await cur.execute(
+            """
+            SELECT cs.rank, cs.candidate_id as cv_id, cs.candidate_id, d.original_filename as file_name, cs.final_score, cs.raw_score,
+                   cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status
+            FROM candidate_scores cs
+            JOIN documents d ON cs.document_id = d.id
+            WHERE cs.run_id = %s
+            ORDER BY cs.rank ASC NULLS LAST, cs.final_score DESC
+            """,
+            (run_id,),
+        )
+        rows = await cur.fetchall()
+        return {
+            "job_id": str(job_id),
+            "screening_run_id": str(run_id),
+            "latest_run": {
+                "id": str(run_id),
+                "status": latest_run["status"],
+                "as_of": str(latest_run["as_of"]),
+                "finished_at": str(latest_run["finished_at"]),
+            },
+            "rankings": [dict(r) for r in rows],
         }
 
 

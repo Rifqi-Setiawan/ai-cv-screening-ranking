@@ -67,3 +67,4 @@ class JobResponse(BaseModel):
     employment_type: str | None = None
     external_ref: str | None = None
     created_at: datetime
+    cv_count: int = 0

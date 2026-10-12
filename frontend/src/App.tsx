@@ -61,6 +61,7 @@ Kualifikasi:
   const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('cv_screening_token'))
   const [currentJobId, setCurrentJobId] = useState<string | null>(() => localStorage.getItem('cv_screening_job_id'))
   const [currentRunId, setCurrentRunId] = useState<string | null>(null)
+  const [availableJobs, setAvailableJobs] = useState<Array<{ id: string; title: string; cv_count: number }>>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setIsDragging] = useState<boolean>(false)
   const [isUploading, setIsUploading] = useState<boolean>(false)
@@ -142,12 +143,63 @@ Kualifikasi:
     return null
   }
 
+  const selectJob = async (jId: string, title?: string) => {
+    setCurrentJobId(jId)
+    localStorage.setItem('cv_screening_job_id', jId)
+    if (title) setJobTitle(title)
+    await fetchJobCvsStatus(jId)
+    await fetchLatestLeaderboard(jId)
+  }
+
+  const fetchJobsList = async () => {
+    try {
+      const res = await fetch('/api/v1/jobs', { headers: { ...getAuthHeaders() } })
+      if (res.ok) {
+        const jobs = await res.json()
+        if (Array.isArray(jobs) && jobs.length > 0) {
+          setAvailableJobs(jobs.map((j: any) => ({ id: j.id, title: j.title, cv_count: j.cv_count || 0 })))
+
+          const savedId = localStorage.getItem('cv_screening_job_id')
+          const found = jobs.find((j: any) => j.id === savedId)
+          if (found) {
+            await selectJob(found.id, found.title)
+          } else {
+            const bestJob = jobs.slice().sort((a: any, b: any) => (b.cv_count || 0) - (a.cv_count || 0))[0]
+            if (bestJob) {
+              await selectJob(bestJob.id, bestJob.title)
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Error fetching jobs:', e)
+    }
+  }
+
   useEffect(() => {
-    loginRecruiter()
+    const init = async () => {
+      await loginRecruiter()
+      await fetchJobsList()
+    }
+    init()
   }, [])
 
   const ensureJobExists = async (): Promise<string> => {
     if (currentJobId) return currentJobId
+    try {
+      const listRes = await fetch('/api/v1/jobs', { headers: { ...getAuthHeaders() } })
+      if (listRes.ok) {
+        const jobs = await listRes.json()
+        if (jobs && jobs.length > 0) {
+          const bestJob = jobs.slice().sort((a: any, b: any) => (b.cv_count || 0) - (a.cv_count || 0))[0]
+          const jId = bestJob.id
+          await selectJob(jId, bestJob.title)
+          return jId
+        }
+      }
+    } catch (e) {
+      console.warn('Job listing error:', e)
+    }
     try {
       const res = await fetch('/api/v1/jobs', {
         method: 'POST',
@@ -163,28 +215,13 @@ Kualifikasi:
       if (res.ok) {
         const data = await res.json()
         const jId = data.id
-        setCurrentJobId(jId)
-        localStorage.setItem('cv_screening_job_id', jId)
+        await selectJob(jId, jobTitle)
         return jId
       }
     } catch (e) {
       console.warn('Job creation error:', e)
     }
-    try {
-      const listRes = await fetch('/api/v1/jobs', { headers: { ...getAuthHeaders() } })
-      if (listRes.ok) {
-        const jobs = await listRes.json()
-        if (jobs && jobs.length > 0) {
-          const jId = jobs[0].id
-          setCurrentJobId(jId)
-          localStorage.setItem('cv_screening_job_id', jId)
-          return jId
-        }
-      }
-    } catch (e) {
-      console.warn('Job listing error:', e)
-    }
-    return '4801b036-e7a9-4e31-bc83-5b5e7468b62b'
+    return '5364833c-ae8a-4b11-aeff-016b34903da0'
   }
 
   const fetchJobCvsStatus = async (jId: string) => {
@@ -352,6 +389,58 @@ Kualifikasi:
     }
   }
 
+  const fetchLatestLeaderboard = async (jId?: string) => {
+    try {
+      const targetJobId = jId || (await ensureJobExists())
+      if (!targetJobId) return
+      const res = await fetch(`/api/v1/jobs/${targetJobId}/screenings/latest`, {
+        headers: { ...getAuthHeaders() },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.latest_run && data.rankings && data.rankings.length > 0) {
+          setCurrentRunId(data.screening_run_id)
+          const mappedCandidates: CandidateDetail[] = data.rankings.map((r: any, idx: number) => ({
+            rank: r.rank || idx + 1,
+            cv_id: r.cv_id || r.candidate_id,
+            file_name: r.file_name,
+            blind_id: `C-${String(idx + 1).padStart(4, '0')}`,
+            real_name: r.file_name.replace(/\.[^/.]+$/, '').replace(/_/g, ' '),
+            revealed: false,
+            final_score: typeof r.final_score === 'number' ? r.final_score : parseFloat(r.final_score) || 0,
+            raw_score: typeof r.raw_score === 'number' ? r.raw_score : parseFloat(r.raw_score) || 0,
+            band: r.band,
+            recommendation: r.recommendation,
+            category_breakdown: r.category_breakdown || {},
+            metrics: {},
+            flags: r.flags || [],
+            quality_status: r.quality_status || 'READY',
+            requirement_states: {},
+            evidence: {},
+            explanation: {
+              band: r.band,
+              recommendation: r.recommendation,
+              final_score: typeof r.final_score === 'number' ? r.final_score : parseFloat(r.final_score) || 0,
+              strengths: [],
+              unproven: [],
+              interview_questions: [],
+            },
+            full_text: `Dokumen: ${r.file_name}\nStatus Ingestion: ${r.quality_status || 'READY'}\nSkor Evaluasi: ${r.final_score}`,
+          }))
+          setCandidates(mappedCandidates)
+        }
+      }
+    } catch (e) {
+      console.warn('Error fetching latest leaderboard:', e)
+    }
+  }
+
+  useEffect(() => {
+    if (currentStep === 'leaderboard') {
+      fetchLatestLeaderboard()
+    }
+  }, [currentStep])
+
   const handleStartScreening = async () => {
     setIsScreening(true)
     try {
@@ -383,50 +472,17 @@ Kualifikasi:
         const data = await res.json()
         const runId = data.screening_run_id || data.run_id
         setCurrentRunId(runId)
-
-        // Fetch rankings
-        const rankRes = await fetch(`/api/v1/jobs/${jId}/screenings/${runId}/rankings`, {
-          headers: { ...getAuthHeaders() },
-        })
-        if (rankRes.ok) {
-          const rankData = await rankRes.json()
-          if (rankData.rankings && rankData.rankings.length > 0) {
-            const mappedCandidates: CandidateDetail[] = rankData.rankings.map((r: any, idx: number) => ({
-              rank: r.rank || idx + 1,
-              cv_id: r.cv_id || r.candidate_id,
-              file_name: r.file_name,
-              blind_id: `C-${String(idx + 1).padStart(4, '0')}`,
-              real_name: r.file_name.replace(/\.[^/.]+$/, '').replace(/_/g, ' '),
-              revealed: false,
-              final_score: typeof r.final_score === 'number' ? r.final_score : parseFloat(r.final_score) || 0,
-              raw_score: typeof r.raw_score === 'number' ? r.raw_score : parseFloat(r.raw_score) || 0,
-              band: r.band,
-              recommendation: r.recommendation,
-              category_breakdown: r.category_breakdown || {},
-              metrics: {},
-              flags: r.flags || [],
-              quality_status: r.quality_status || 'READY',
-              requirement_states: {},
-              evidence: {},
-              explanation: {
-                band: r.band,
-                recommendation: r.recommendation,
-                final_score: typeof r.final_score === 'number' ? r.final_score : parseFloat(r.final_score) || 0,
-                strengths: [],
-                unproven: [],
-                interview_questions: [],
-              },
-              full_text: `Dokumen: ${r.file_name}\nStatus Ingestion: ${r.quality_status || 'READY'}\nSkor Evaluasi: ${r.final_score}`,
-            }))
-            setCandidates(mappedCandidates)
-          }
-        }
+        await fetchLatestLeaderboard(jId)
+        setCurrentStep('leaderboard')
+      } else {
+        const errJson = await res.json().catch(() => ({}))
+        alert(`Gagal menjalankan evaluasi: ${errJson.detail || res.statusText || 'Terjadi kesalahan pada server'}`)
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn('Error starting screening:', e)
+      alert(`Terjadi kesalahan: ${e.message}`)
     } finally {
       setIsScreening(false)
-      setCurrentStep('leaderboard')
     }
   }
 
@@ -621,7 +677,27 @@ Kualifikasi:
           </div>
           <div>
             <h1 className="text-base font-bold text-slate-900 leading-tight">AI CV Screening & Ranking</h1>
-            <p className="text-xs text-slate-500">Platform Evaluasi & Pemeringkatan Kandidat Berpresisi Tinggi</p>
+            {availableJobs.length > 0 ? (
+              <div className="flex items-center space-x-1.5 mt-0.5">
+                <span className="text-xs text-slate-500 font-medium hidden sm:inline">Lowongan:</span>
+                <select
+                  value={currentJobId || ''}
+                  onChange={(e) => {
+                    const selected = availableJobs.find((j) => j.id === e.target.value)
+                    if (selected) selectJob(selected.id, selected.title)
+                  }}
+                  className="text-xs bg-slate-100 border border-slate-300 font-bold text-indigo-900 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 max-w-[200px] truncate"
+                >
+                  {availableJobs.map((j) => (
+                    <option key={j.id} value={j.id}>
+                      {j.title} ({j.cv_count} CV)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500">Platform Evaluasi & Pemeringkatan Kandidat Berpresisi Tinggi</p>
+            )}
           </div>
         </div>
 
