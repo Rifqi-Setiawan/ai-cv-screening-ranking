@@ -122,3 +122,41 @@ async def test_extraction_export_matches_evaluator(client: httpx.AsyncClient, re
 
     passed = eval_extraction(export_data)
     assert passed is True, "evaluate.py --extraction failed on API export data!"
+
+
+@pytest.mark.asyncio
+async def test_zip_archive_cv_upload(client: httpx.AsyncClient, recruiter_token: str):
+    import io
+    import zipfile
+
+    headers = {"Authorization": f"Bearer {recruiter_token}"}
+    j_res = await client.post(
+        "/api/v1/jobs",
+        json={"title": "Zip Upload Job", "jd_text": "Python PostgreSQL backend development."},
+        headers=headers,
+    )
+    assert j_res.status_code == 201
+    job_id = j_res.json()["id"]
+
+    # Pack 3 PDFs into in-memory zip
+    cvs_core = Path("docs/spec/golden_dataset/cvs/core")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("S1_senior_backend_id.pdf", (cvs_core / "S1_senior_backend_id.pdf").read_bytes())
+        z.writestr("S2_backend_fintech_en.pdf", (cvs_core / "S2_backend_fintech_en.pdf").read_bytes())
+        z.writestr("M1_nodejs_backend_two_column.pdf", (cvs_core / "M1_nodejs_backend_two_column.pdf").read_bytes())
+        # Add a macosx hidden file to verify sanitizer ignores it
+        z.writestr("__MACOSX/._dummy.pdf", b"fake resource fork")
+
+    files_to_upload = [("files", ("kandidat_batch.zip", buf.getvalue(), "application/zip"))]
+    up_res = await client.post(f"/api/v1/jobs/{job_id}/cvs", files=files_to_upload, headers=headers)
+    assert up_res.status_code == 202
+    res_data = up_res.json()
+    assert res_data["total_files"] == 3
+
+    st_res = await client.get(f"/api/v1/jobs/{job_id}/cvs/status", headers=headers)
+    assert st_res.status_code == 200
+    st_data = st_res.json()
+    assert st_data["total"] == 3
+    doc_names = {d["filename"] for d in st_data["documents"]}
+    assert doc_names == {"S1_senior_backend_id.pdf", "S2_backend_fintech_en.pdf", "M1_nodejs_backend_two_column.pdf"}

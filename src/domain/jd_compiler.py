@@ -168,8 +168,14 @@ async def compile_job_requirements(jd_text: str, tenant_id: uuid.UUID | None = N
     )
 
     requirements = []
-    if llm_res and isinstance(llm_res.get("requirements"), list) and len(llm_res["requirements"]) >= 1:
-        for idx, item in enumerate(llm_res["requirements"], 1):
+    req_list = []
+    if isinstance(llm_res, list):
+        req_list = llm_res
+    elif isinstance(llm_res, dict) and isinstance(llm_res.get("requirements"), list):
+        req_list = llm_res["requirements"]
+
+    if req_list:
+        for idx, item in enumerate(req_list, 1):
             desc = item.get("description", "")
             r_lint = lint_text(desc)
             concepts = list(item.get("concepts", []))

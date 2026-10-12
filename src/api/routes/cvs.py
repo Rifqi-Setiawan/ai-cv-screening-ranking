@@ -52,10 +52,14 @@ async def upload_cvs(
             try:
                 with zipfile.ZipFile(io.BytesIO(data)) as z:
                     for zinfo in z.infolist():
-                        if zinfo.is_dir() or zinfo.filename.startswith("__MACOSX"):
+                        if (
+                            zinfo.is_dir()
+                            or "__macosx" in zinfo.filename.lower()
+                            or Path(zinfo.filename).name.startswith(".")
+                        ):
                             continue
                         leaf_name = Path(zinfo.filename).name
-                        if leaf_name.lower().endswith((".pdf", ".docx", ".doc")):
+                        if leaf_name.lower().endswith((".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg")):
                             extracted_items.append((leaf_name, z.read(zinfo.filename)))
             except Exception as e:
                 logger.error(f"Failed to unpack zip {fname}: {e}")
