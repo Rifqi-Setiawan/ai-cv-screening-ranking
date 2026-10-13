@@ -70,6 +70,9 @@ Kualifikasi:
   const [isUploading, setIsUploading] = useState<boolean>(false)
   const [isScreening, setIsScreening] = useState<boolean>(false)
   const [uploadStatusMsg, setUploadStatusMsg] = useState<string>('')
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false)
+  const pollTimerRef = useRef<any>(null)
+  const isPollingRef = useRef<boolean>(false)
 
   // Uploaded files list
   const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; size: string; status: 'ready' | 'processing' | 'review' | 'unqualified' | 'duplicate'; reason?: string }>>([])
@@ -338,7 +341,35 @@ Kualifikasi:
     return '5364833c-ae8a-4b11-aeff-016b34903da0'
   }
 
-  const fetchJobCvsStatus = async (jId: string) => {
+  const stopPollingJobCvs = () => {
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current)
+      pollTimerRef.current = null
+    }
+    isPollingRef.current = false
+  }
+
+  const startPollingJobCvs = (jId: string) => {
+    if (!jId) return
+    stopPollingJobCvs()
+    isPollingRef.current = true
+    let attempts = 0
+    const maxAttempts = 150 // Poll up to 5 minutes (150 * 2000ms)
+
+    const tick = async () => {
+      attempts++
+      const allDone = await fetchJobCvsStatus(jId)
+      if (allDone || attempts >= maxAttempts) {
+        stopPollingJobCvs()
+      }
+    }
+
+    tick()
+    pollTimerRef.current = setInterval(tick, 2000)
+  }
+
+  const fetchJobCvsStatus = async (jId: string): Promise<boolean> => {
+    if (!jId) return true
     try {
       const res = await fetch(`/api/v1/jobs/${jId}/cvs/status`, {
         headers: { ...getAuthHeaders() },
@@ -357,7 +388,7 @@ Kualifikasi:
                 ? ('review' as const)
                 : f.status === 'DUPLICATE'
                 ? ('duplicate' as const)
-                : (f.status === 'PROCESSING' || f.status === 'RECEIVED')
+                : f.status === 'PROCESSING' || f.status === 'RECEIVED'
                 ? ('processing' as const)
                 : ('unqualified' as const),
             reason:
@@ -374,25 +405,38 @@ Kualifikasi:
           setUploadedFiles(mapped)
           const allDone = rawDocs.every((f: any) => f.status !== 'RECEIVED' && f.status !== 'PROCESSING')
           return allDone
+        } else if (Array.isArray(rawDocs) && rawDocs.length === 0) {
+          return true
         }
       }
     } catch (e) {
       console.warn('Error polling status:', e)
+      return false
     }
-    return true
+    return false
+  }
+
+  const handleManualRefresh = async () => {
+    if (!currentJobId) return
+    setIsRefreshing(true)
+    const allDone = await fetchJobCvsStatus(currentJobId)
+    if (!allDone) {
+      startPollingJobCvs(currentJobId)
+    }
+    setTimeout(() => setIsRefreshing(false), 500)
   }
 
   const handleUploadFiles = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return
     setIsUploading(true)
-    setUploadStatusMsg(`Mengunggah dan memproses ${files.length} berkas CV...`)
+    setUploadStatusMsg(`Mengunggah ${files.length} berkas CV...`)
 
     // Instantly show the selected files in the table as 'processing'
     const immediateItems = Array.from(files).map((f) => ({
       name: f.name,
       size: `${Math.round(f.size / 1024)} KB`,
       status: 'processing' as const,
-      reason: 'Sedang diekstrak dan dianalisis oleh server...',
+      reason: 'Sedang mengunggah dan menganalisis berkas di server...',
     }))
     setUploadedFiles((prev) => [
       ...immediateItems,
@@ -427,22 +471,45 @@ Kualifikasi:
       }
 
       if (res.ok) {
-        await fetchJobCvsStatus(jId)
-        let pollCount = 0
-        const pollInterval = setInterval(async () => {
-          pollCount++
-          const allDone = await fetchJobCvsStatus(jId)
-          if (allDone || pollCount >= 30) {
-            clearInterval(pollInterval)
-          }
-        }, 2000)
+        const resData = await res.json().catch(() => null)
+        // If server unpacked archive entries, immediately update table with extracted files
+        if (resData && Array.isArray(resData.files) && resData.files.length > 0) {
+          setUploadedFiles(
+            resData.files.map((f: any) => ({
+              name: f.filename,
+              size: 'Memproses...',
+              status: f.status === 'DUPLICATE' ? ('duplicate' as const) : ('processing' as const),
+              reason:
+                f.status === 'DUPLICATE'
+                  ? 'Berkas duplikat identik (sudah diunggah sebelumnya)'
+                  : 'Sedang diekstrak dan dianalisis oleh server...',
+            }))
+          )
+        }
+        setUploadStatusMsg('Unggahan diterima server. Mengekstrak dan menganalisis berkas...')
+        // Start continuous background polling
+        startPollingJobCvs(jId)
       } else {
         const err = await res.json().catch(() => ({}))
         const msg = err.detail || err.message || res.statusText || `Server error (${res.status})`
         alert(`Gagal mengunggah berkas: ${msg}`)
+        setUploadedFiles((prev) =>
+          prev.map((p) =>
+            immediateItems.some((imm) => imm.name === p.name)
+              ? { ...p, status: 'unqualified' as const, reason: `Gagal diunggah: ${msg}` }
+              : p
+          )
+        )
       }
     } catch (e: any) {
       alert(`Terjadi kesalahan jaringan: ${e.message}`)
+      setUploadedFiles((prev) =>
+        prev.map((p) =>
+          immediateItems.some((imm) => imm.name === p.name)
+            ? { ...p, status: 'unqualified' as const, reason: `Kesalahan jaringan: ${e.message}` }
+            : p
+        )
+      )
     } finally {
       setIsUploading(false)
       setUploadStatusMsg('')
@@ -550,10 +617,22 @@ Kualifikasi:
   }
 
   useEffect(() => {
-    if (currentStep === 'leaderboard') {
+    if (currentStep === 'upload' && currentJobId) {
+      fetchJobCvsStatus(currentJobId).then((allDone) => {
+        if (!allDone) {
+          startPollingJobCvs(currentJobId)
+        }
+      })
+    } else if (currentStep === 'leaderboard') {
       fetchLatestLeaderboard()
     }
-  }, [currentStep])
+  }, [currentStep, currentJobId])
+
+  useEffect(() => {
+    return () => {
+      stopPollingJobCvs()
+    }
+  }, [])
 
   const handleStartScreening = async () => {
     setIsScreening(true)
@@ -1277,6 +1356,16 @@ Kualifikasi:
                   <p className="text-xs text-slate-500">Mendukung format PDF, DOCX, scan gambar, dan arsip ZIP berukuran hingga 10 MB per berkas.</p>
                 </div>
                 <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={handleManualRefresh}
+                    disabled={isRefreshing}
+                    className="text-xs text-slate-700 hover:text-indigo-700 bg-white hover:bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-md font-medium transition-colors flex items-center space-x-1.5 shadow-2xs disabled:opacity-50"
+                    title="Segarkan status berkas CV dari server"
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-indigo-600' : 'text-slate-500'}`} />
+                    <span>Perbarui Status</span>
+                  </button>
                   {uploadedFiles.length > 0 && (
                     <button
                       onClick={handleClearUploadedCvs}

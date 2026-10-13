@@ -51,190 +51,190 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
         content = vault_file.read_bytes()
         filename = doc["original_filename"]
 
-        # 1. Sanitize file & inspect edge cases
-        san = sanitize_file(content, filename)
-        if not san.is_valid or san.status == "REJECTED":
-            await cur.execute(
-                """
-                UPDATE documents
-                SET status = 'REJECTED', reasons = %s, flags = %s
-                WHERE id = %s
-                """,
-                (san.reasons, san.flags, doc_id),
-            )
-            await conn.commit()
-            logger.info(f"Document {filename} REJECTED: {san.reasons}")
-            return {"status": "REJECTED", "reasons": san.reasons}
-
-        # 2. Check Deduplication against other documents in the same job
-        await cur.execute(
-            """
-            SELECT id, original_filename
-            FROM documents
-            WHERE job_id = %s AND sha256 = %s AND id != %s AND status IN ('READY', 'RECEIVED', 'NEEDS_REVIEW')
-            ORDER BY created_at ASC
-            LIMIT 1
-            """,
-            (doc["job_id"], doc["sha256"], doc_id),
-        )
-        dup_row = await cur.fetchone()
-        if dup_row:
-            await cur.execute(
-                """
-                UPDATE documents
-                SET status = 'DUPLICATE', duplicate_of = %s
-                WHERE id = %s
-                """,
-                (dup_row["id"], doc_id),
-            )
-            await conn.commit()
-            logger.info(f"Document {filename} marked as DUPLICATE of {dup_row['original_filename']}")
-            return {"status": "DUPLICATE", "duplicate_of": dup_row["original_filename"]}
-
-        # If empty content or not a CV -> mark NEEDS_REVIEW
-        if san.status == "NEEDS_REVIEW":
-            await cur.execute(
-                """
-                UPDATE documents
-                SET status = 'NEEDS_REVIEW', reasons = %s, flags = %s
-                WHERE id = %s
-                """,
-                (san.reasons, san.flags, doc_id),
-            )
-            await conn.commit()
-            logger.info(f"Document {filename} marked as NEEDS_REVIEW: {san.reasons}")
-            return {"status": "NEEDS_REVIEW", "reasons": san.reasons}
-
-        # 3. Extract Candidate Profile via production adapter
         try:
+            # 1. Sanitize file & inspect edge cases
+            san = sanitize_file(content, filename)
+            if not san.is_valid or san.status == "REJECTED":
+                await cur.execute(
+                    """
+                    UPDATE documents
+                    SET status = 'REJECTED', reasons = %s, flags = %s
+                    WHERE id = %s
+                    """,
+                    (san.reasons, san.flags, doc_id),
+                )
+                await conn.commit()
+                logger.info(f"Document {filename} REJECTED: {san.reasons}")
+                return {"status": "REJECTED", "reasons": san.reasons}
+
+            # 2. Check Deduplication against other documents in the same job
+            await cur.execute(
+                """
+                SELECT id, original_filename
+                FROM documents
+                WHERE job_id = %s AND sha256 = %s AND id != %s AND status IN ('READY', 'RECEIVED', 'NEEDS_REVIEW')
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (doc["job_id"], doc["sha256"], doc_id),
+            )
+            dup_row = await cur.fetchone()
+            if dup_row:
+                await cur.execute(
+                    """
+                    UPDATE documents
+                    SET status = 'DUPLICATE', duplicate_of = %s
+                    WHERE id = %s
+                    """,
+                    (dup_row["id"], doc_id),
+                )
+                await conn.commit()
+                logger.info(f"Document {filename} marked as DUPLICATE of {dup_row['original_filename']}")
+                return {"status": "DUPLICATE", "duplicate_of": dup_row["original_filename"]}
+
+            # If empty content or not a CV -> mark NEEDS_REVIEW
+            if san.status == "NEEDS_REVIEW":
+                await cur.execute(
+                    """
+                    UPDATE documents
+                    SET status = 'NEEDS_REVIEW', reasons = %s, flags = %s
+                    WHERE id = %s
+                    """,
+                    (san.reasons, san.flags, doc_id),
+                )
+                await conn.commit()
+                logger.info(f"Document {filename} marked as NEEDS_REVIEW: {san.reasons}")
+                return {"status": "NEEDS_REVIEW", "reasons": san.reasons}
+
+            # 3. Extract Candidate Profile via production adapter
             raw_profile = extract_candidate_profile(content, filename)
             # 4. Separate Identity and Redact Matching Profile
             identity_rec, matching_profile, chunks = extract_identity_and_redact(raw_profile)
-        except Exception as e:
-            logger.error(f"Extraction failed for document {filename}: {e}")
-            await cur.execute(
-                """
-                UPDATE documents
-                SET status = 'NEEDS_REVIEW', reasons = ARRAY['EXTRACTION_ERROR: ' || %s]
-                WHERE id = %s
-                """,
-                (str(e)[:100], doc_id),
-            )
-            await conn.commit()
-            return {"status": "NEEDS_REVIEW", "reasons": [f"EXTRACTION_ERROR: {str(e)[:100]}"]}
 
-        # 5. Create Candidate record
-        # Check if candidate already linked to this document
-        if doc.get("candidate_id"):
-            candidate_id = doc["candidate_id"]
-            await cur.execute("SELECT candidate_code FROM candidates WHERE id = %s", (candidate_id,))
-            cand_row = await cur.fetchone()
-            candidate_code = cand_row["candidate_code"] if cand_row else None
-        else:
-            candidate_id = uuid.uuid4()
-            candidate_code = None
+            # 5. Create Candidate record
+            # Check if candidate already linked to this document
+            if doc.get("candidate_id"):
+                candidate_id = doc["candidate_id"]
+                await cur.execute("SELECT candidate_code FROM candidates WHERE id = %s", (candidate_id,))
+                cand_row = await cur.fetchone()
+                candidate_code = cand_row["candidate_code"] if cand_row else None
+            else:
+                candidate_id = uuid.uuid4()
+                candidate_code = None
 
-        if not candidate_code:
-            await cur.execute("SELECT nextval('candidate_code_seq') as seq")
-            seq_row = await cur.fetchone()
-            seq_val = seq_row["seq"] if seq_row and seq_row["seq"] else 1
-            candidate_code = f"C-{seq_val:04d}"
+            if not candidate_code:
+                await cur.execute("SELECT nextval('candidate_code_seq') as seq")
+                seq_row = await cur.fetchone()
+                seq_val = seq_row["seq"] if seq_row and seq_row["seq"] else 1
+                candidate_code = f"C-{seq_val:04d}"
 
-            await cur.execute(
-                """
-                INSERT INTO candidates (id, tenant_id, candidate_code, status)
-                VALUES (%s, %s, %s, 'ACTIVE')
-                ON CONFLICT (id) DO NOTHING
-                """,
-                (candidate_id, doc["tenant_id"], candidate_code),
-            )
-
-        # 6. Save Identity
-        other_p_bytes = json.dumps(identity_rec["other_personal"]).encode("utf-8")
-        await cur.execute(
-            """
-            INSERT INTO candidate_identities (
-                candidate_id, tenant_id, full_name, email, phone, location_raw, other_personal
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (candidate_id) DO UPDATE SET
-                full_name = EXCLUDED.full_name, email = EXCLUDED.email, phone = EXCLUDED.phone
-            """,
-            (
-                candidate_id,
-                doc["tenant_id"],
-                identity_rec["full_name"],
-                identity_rec["email"],
-                identity_rec["phone"],
-                identity_rec["location_raw"],
-                other_p_bytes,
-            ),
-        )
-
-        # 7. Save Candidate Profile (Upsert)
-        quality_flags = list(set(san.flags + raw_profile.get("quality", {}).get("warnings", [])))
-        await cur.execute(
-            """
-            INSERT INTO candidate_profiles (
-                id, tenant_id, document_id, profile, matching_profile, extractor_version, quality
-            )
-            VALUES (%s, %s, %s, %s, %s, 'cv-extractor-1.0.0', %s)
-            ON CONFLICT (document_id) DO UPDATE SET
-                profile = EXCLUDED.profile,
-                matching_profile = EXCLUDED.matching_profile,
-                quality = EXCLUDED.quality
-            RETURNING id
-            """,
-            (
-                uuid.uuid4(),
-                doc["tenant_id"],
-                doc_id,
-                json.dumps(raw_profile),
-                json.dumps(matching_profile),
-                json.dumps({"flags": quality_flags, "confidence": san.is_valid}),
-            ),
-        )
-        prof_row = await cur.fetchone()
-        profile_id = prof_row["id"]
-
-        # Clean existing chunks if re-processing
-        await cur.execute("DELETE FROM profile_chunks WHERE profile_id = %s", (profile_id,))
-
-        # 8. Generate & Insert Profile Chunks with Embeddings
-        chunk_texts = [c["text_redacted"] for c in chunks]
-        embeddings = embed_texts(chunk_texts)
-
-        for c, emb in zip(chunks, embeddings):
-            c_hash = hashlib.sha256(c["text_redacted"].encode()).hexdigest()
-            await cur.execute(
-                """
-                INSERT INTO profile_chunks (
-                    tenant_id, profile_id, kind, entry_ref, text_redacted, chunk_hash, embedding, embedding_model
+                await cur.execute(
+                    """
+                    INSERT INTO candidates (id, tenant_id, candidate_code, status)
+                    VALUES (%s, %s, %s, 'ACTIVE')
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    (candidate_id, doc["tenant_id"], candidate_code),
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+
+            # 6. Save Identity
+            other_p_bytes = json.dumps(identity_rec["other_personal"]).encode("utf-8")
+            await cur.execute(
+                """
+                INSERT INTO candidate_identities (
+                    candidate_id, tenant_id, full_name, email, phone, location_raw, other_personal
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (candidate_id) DO UPDATE SET
+                    full_name = EXCLUDED.full_name, email = EXCLUDED.email, phone = EXCLUDED.phone
                 """,
                 (
+                    candidate_id,
                     doc["tenant_id"],
-                    profile_id,
-                    c["kind"],
-                    c["entry_ref"],
-                    c["text_redacted"],
-                    c_hash,
-                    emb,
-                    settings.EMBEDDING_MODEL,
+                    identity_rec["full_name"],
+                    identity_rec["email"],
+                    identity_rec["phone"],
+                    identity_rec["location_raw"],
+                    other_p_bytes,
                 ),
             )
 
-        # 9. Link Candidate ID and Mark Document READY
-        doc_status = "READY"
-        await cur.execute(
-            """
-            UPDATE documents
-            SET status = %s, candidate_id = %s, flags = %s, reasons = '{}'::text[]
-            WHERE id = %s
-            """,
-            (doc_status, candidate_id, quality_flags, doc_id),
-        )
-        await conn.commit()
-        logger.info(f"Successfully ingested and processed document {filename} (status: {doc_status})")
-        return {"status": doc_status, "profile_id": str(profile_id), "candidate_code": candidate_code}
+            # 7. Save Candidate Profile (Upsert)
+            quality_flags = list(set(san.flags + raw_profile.get("quality", {}).get("warnings", [])))
+            await cur.execute(
+                """
+                INSERT INTO candidate_profiles (
+                    id, tenant_id, document_id, profile, matching_profile, extractor_version, quality
+                )
+                VALUES (%s, %s, %s, %s, %s, 'cv-extractor-1.0.0', %s)
+                ON CONFLICT (document_id) DO UPDATE SET
+                    profile = EXCLUDED.profile,
+                    matching_profile = EXCLUDED.matching_profile,
+                    quality = EXCLUDED.quality
+                RETURNING id
+                """,
+                (
+                    uuid.uuid4(),
+                    doc["tenant_id"],
+                    doc_id,
+                    json.dumps(raw_profile),
+                    json.dumps(matching_profile),
+                    json.dumps({"flags": quality_flags, "confidence": san.is_valid}),
+                ),
+            )
+            prof_row = await cur.fetchone()
+            profile_id = prof_row["id"]
+
+            # Clean existing chunks if re-processing
+            await cur.execute("DELETE FROM profile_chunks WHERE profile_id = %s", (profile_id,))
+
+            # 8. Generate & Insert Profile Chunks with Embeddings
+            chunk_texts = [c["text_redacted"] for c in chunks]
+            embeddings = embed_texts(chunk_texts)
+
+            for c, emb in zip(chunks, embeddings):
+                c_hash = hashlib.sha256(c["text_redacted"].encode()).hexdigest()
+                await cur.execute(
+                    """
+                    INSERT INTO profile_chunks (
+                        tenant_id, profile_id, kind, entry_ref, text_redacted, chunk_hash, embedding, embedding_model
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        doc["tenant_id"],
+                        profile_id,
+                        c["kind"],
+                        c["entry_ref"],
+                        c["text_redacted"],
+                        c_hash,
+                        emb,
+                        settings.EMBEDDING_MODEL,
+                    ),
+                )
+
+            # 9. Link Candidate ID and Mark Document READY
+            doc_status = "READY"
+            await cur.execute(
+                """
+                UPDATE documents
+                SET status = %s, candidate_id = %s, flags = %s, reasons = '{}'::text[]
+                WHERE id = %s
+                """,
+                (doc_status, candidate_id, quality_flags, doc_id),
+            )
+            await conn.commit()
+            logger.info(f"Successfully ingested and processed document {filename} (status: {doc_status})")
+            return {"status": doc_status, "profile_id": str(profile_id), "candidate_code": candidate_code}
+        except Exception as e:
+            logger.error(f"Processing failed for document {filename}: {e}", exc_info=True)
+            await cur.execute(
+                """
+                UPDATE documents
+                SET status = 'NEEDS_REVIEW', reasons = ARRAY['PROCESSING_ERROR: ' || %s]
+                WHERE id = %s
+                """,
+                (str(e)[:150], doc_id),
+            )
+            await conn.commit()
+            return {"status": "NEEDS_REVIEW", "reasons": [f"PROCESSING_ERROR: {str(e)[:150]}"]}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import json
@@ -23,11 +24,16 @@ router = APIRouter(tags=["CV Ingestion"])
 
 
 async def _run_batch_processing(doc_ids: list[uuid.UUID]):
-    for did in doc_ids:
-        try:
-            await process_document(did)
-        except Exception as e:
-            logger.error(f"Async processing error for doc {did}: {e}")
+    sem = asyncio.Semaphore(3)
+
+    async def _worker(did: uuid.UUID):
+        async with sem:
+            try:
+                await process_document(did)
+            except Exception as e:
+                logger.error(f"Async processing error for doc {did}: {e}")
+
+    await asyncio.gather(*[_worker(did) for did in doc_ids])
 
 
 @router.post("/api/v1/jobs/{job_id}/cvs", status_code=status.HTTP_202_ACCEPTED)
