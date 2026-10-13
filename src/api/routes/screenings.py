@@ -97,9 +97,9 @@ async def trigger_screening_run(
         await cur.execute(
             """
             INSERT INTO screening_runs (
-                id, tenant_id, job_id, requirement_set_id, status, as_of, versions, params
+                id, tenant_id, job_id, requirement_set_id, status, as_of, versions, params, started_at
             )
-            VALUES (%s, %s, %s, %s, 'RUNNING', %s, %s, %s)
+            VALUES (%s, %s, %s, %s, 'RUNNING', %s, %s, %s, now())
             """,
             (
                 run_id,
@@ -361,7 +361,7 @@ async def get_latest_screening(
             SELECT id, status, as_of, started_at, finished_at
             FROM screening_runs
             WHERE job_id = %s AND status = 'DONE'
-            ORDER BY started_at DESC NULLS LAST
+            ORDER BY COALESCE(finished_at, started_at) DESC NULLS LAST
             LIMIT 1
             """,
             (job_id,),

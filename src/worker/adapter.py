@@ -103,7 +103,7 @@ def norm_single_date(s: str, is_end: bool = False, ref_year: str = "") -> dict[s
     m = re.match(r"^\d{4}$", s_clean)
     if m:
         y = m.group(0)
-        val = f"{y}-07" if not is_end else f"{y}-06"
+        val = f"{y}-01" if not is_end else f"{y}-12"
         return {"raw": s.strip(), "value": val, "precision": "year", "kind": "INFERENCE"}
 
     return {"raw": s.strip(), "value": None, "precision": "unknown", "kind": "FACT"}
@@ -134,6 +134,10 @@ def parse_experiences(section_text: str, full_doc_text: str) -> list[dict[str, A
         m = RANGE_REGEX.search(l)
         if m:
             date_lines.append((idx, m.group(1), m.group(2), m.start(), m.end()))
+        else:
+            m_single = re.search(r"\b(19\d{2}|20\d{2})\b\s*[|—–-]\s*(.+)", l)
+            if m_single:
+                date_lines.append((idx, m_single.group(1), m_single.group(1), 0, len(l)))
 
     for i, (idx, raw_start, raw_end, m_start, _m_end) in enumerate(date_lines):
         ref_y = ""
@@ -145,32 +149,82 @@ def parse_experiences(section_text: str, full_doc_text: str) -> list[dict[str, A
         end_date = norm_single_date(raw_end, is_end=True, ref_year=ref_y)
 
         curr_line = lines[idx]
-        pre_text = curr_line[:m_start].strip()
+        pre_text = curr_line[:m_start].strip().strip("(-|•— ")
 
         title = ""
         org = ""
 
-        if pre_text:
-            parts = re.split(r"[—|]", pre_text)
+        # Case 1: Pre-text exists
+        if pre_text and len(pre_text) > 2:
+            parts = re.split(r"[,|—–-]", pre_text)
             if len(parts) >= 2:
-                title = parts[0].strip()
-                org = parts[1].strip().split(",")[0].strip()
+                p0, p1 = parts[0].strip(), parts[1].strip()
+                if any(k in p1.lower() for k in ["analyst", "engineer", "manager", "staff", "intern", "developer", "consultant", "spv", "lead", "officer", "asisten"]):
+                    title, org = p1, p0
+                else:
+                    title, org = p0, p1
+            elif idx + 1 < len(lines) and not RANGE_REGEX.search(lines[idx + 1]):
+                next_l = lines[idx + 1].strip("•-* ")
+                if any(k in next_l.lower() for k in ["intern", "analyst", "engineer", "staff", "manager", "lead", "developer", "officer", "consultant", "spv", "supervisor", "head", "koordinator"]) or len(next_l) < 45:
+                    title = next_l
+                    org = pre_text
+                else:
+                    title = pre_text
             else:
-                title = pre_text.strip()
-        elif idx > 0:
-            prev_line = lines[idx - 1]
-            parts = re.split(r"[—|]", prev_line)
-            if len(parts) >= 2:
-                title = parts[0].strip()
-                org = parts[1].strip().split(",")[0].strip()
-            else:
-                title = prev_line.strip()
-                if idx > 1:
-                    org = lines[idx - 2].strip()
+                title = pre_text
+
+        # Case 2: Pre-text was empty (e.g. date on its own line)
+        if not title:
+            m_single = re.search(r"\b(19\d{2}|20\d{2})\b\s*[|—–-]\s*(.+)", curr_line)
+            if m_single:
+                cand_txt = m_single.group(2).strip()
+                if " at " in cand_txt.lower():
+                    p_parts = re.split(r"\s+at\s+", cand_txt, flags=re.I)
+                    title = p_parts[0].strip()
+                    org = p_parts[1].strip()
+                elif " di " in cand_txt.lower():
+                    p_parts = re.split(r"\s+di\s+", cand_txt, flags=re.I)
+                    title = p_parts[0].strip()
+                    org = p_parts[1].strip()
+                else:
+                    title = cand_txt
+                title = re.sub(r"^(?:interned\s+as\s+a|worked\s+as\s+an|worked\s+as\s+a|sebagai)\s+", "", title, flags=re.I).strip()
+
+        if not title:
+            candidate_next = lines[idx + 1].strip("•-* ") if (idx + 1 < len(lines) and not RANGE_REGEX.search(lines[idx + 1])) else ""
+            candidate_prev = lines[idx - 1].strip("•-* ") if (idx > 0 and not RANGE_REGEX.search(lines[idx - 1])) else ""
+
+            if candidate_next and ("," in candidate_next or "-" in candidate_next or any(k in candidate_next.lower() for k in ["analyst", "engineer", "manager", "staff", "intern", "developer", "consultant", "officer", "lead", "head", "specialist", "direktur", "spv", "project", "asisten", "asst"])):
+                parts = re.split(r"[,|—–-]", candidate_next)
+                if len(parts) >= 2:
+                    p0, p1 = parts[0].strip(), parts[1].strip()
+                    if any(k in p1.lower() for k in ["analyst", "engineer", "manager", "staff", "intern", "developer", "consultant", "spv", "lead", "officer"]):
+                        title, org = p1, p0
+                    else:
+                        title, org = p0, p1
+                else:
+                    title = candidate_next
+                    if candidate_prev:
+                        org = candidate_prev
+            elif candidate_prev:
+                parts = re.split(r"[,|—–-]", candidate_prev)
+                if len(parts) >= 2:
+                    p0, p1 = parts[0].strip(), parts[1].strip()
+                    if any(k in p1.lower() for k in ["analyst", "engineer", "manager", "staff", "intern", "developer", "consultant", "spv", "lead", "officer"]):
+                        title, org = p1, p0
+                    else:
+                        title, org = p0, p1
+                else:
+                    title = candidate_prev
+                    if candidate_next:
+                        org = candidate_next
+            elif candidate_next:
+                title = candidate_next
 
         next_idx = date_lines[i + 1][0] if i + 1 < len(date_lines) else len(lines)
-        bullet_lines = lines[idx + 1 : next_idx]
-        block_text = " ".join([curr_line] + bullet_lines).lower()
+        start_bullet = idx + 2 if (idx + 1 < len(lines) and lines[idx + 1].strip("•-* ") == title) else idx + 1
+        bullet_lines = lines[start_bullet:next_idx]
+        block_text = " ".join([curr_line, title, org] + bullet_lines).lower()
 
         # Context & employment type classification
         emp_type = "full_time"
@@ -262,10 +316,10 @@ def parse_certifications(ce_text: str, ed_text: str) -> list[str]:
 
 def parse_education(section_text: str, full_doc_text: str) -> list[dict[str, Any]]:
     levels = []
-    t = section_text.lower()
-    if re.search(r"\bs1\b|sarjana|bachelor", t):
+    t = (section_text + " " + full_doc_text).lower()
+    if re.search(r"\bs1\b|sarjana|bachelor|\bs\.e\b|\bs\.stat\b", t):
         levels.append("S1")
-    if re.search(r"\bs2\b|magister|master", t):
+    if re.search(r"\bs2\b|magister|master|\bmba\b", t):
         levels.append("S2")
     if re.search(r"\bd3\b|diploma 3|diploma iii", t):
         levels.append("D3")
@@ -275,17 +329,24 @@ def parse_education(section_text: str, full_doc_text: str) -> list[dict[str, Any
         levels.append("SMK")
     if re.search(r"\bsma\b", t):
         levels.append("SMA")
-    if not levels and re.search(r"universitas|institut|politeknik|college", t):
+    if not levels and re.search(r"universitas|institut|politeknik|college|uin|graduate|lulusan", t):
         levels.append("S1")
 
     entries = []
+    ed_lines = [l.strip() for l in section_text.splitlines() if l.strip()]
     for idx, lvl in enumerate(levels):
+        deg_raw = " ".join(ed_lines[:4]) if ed_lines else lvl
+        inst = ""
+        for l in ed_lines:
+            if any(u in l.lower() for u in ["universitas", "university", "institut", "institute", "politeknik", "uin", "itb", "ugm", "unpad", "unri", "unisba", "unpas", "ipb"]):
+                inst = l
+                break
         entries.append(
             {
                 "entry_id": f"edu_{idx + 1}",
                 "level": lvl,
-                "degree_raw": section_text.splitlines()[0] if section_text else lvl,
-                "institution": section_text.splitlines()[1] if len(section_text.splitlines()) > 1 else "",
+                "degree_raw": deg_raw,
+                "institution": inst,
                 "source": find_provenance(full_doc_text, lvl),
             }
         )
@@ -347,6 +408,40 @@ def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
     org_text = "\n".join(sec_map.get("organizations", []))
 
     full_text = "\n".join(s.get("text", "") for s in raw.get("sections", []))
+
+    # Fallback for skills: harvest lines from additional_info, other, and summary if skills are sparse
+    sk_lines = [sk_text] if sk_text else []
+    for extra_lbl in ("additional_info", "other", "summary"):
+        for text in sec_map.get(extra_lbl, []):
+            m_sk = re.search(r"(?:skills?|keahlian|kemampuan|technical skills?|hard skills?)\s*:\s*(.+)", text, re.IGNORECASE | re.DOTALL)
+            if m_sk:
+                sk_lines.append(m_sk.group(1).strip())
+            else:
+                for line in text.splitlines():
+                    if any(w in line.lower() for w in ["skill", "keahlian", "kemampuan", "tools", "software", "excel", "stata", "spss", "python", "sql", "tableau", "power bi", "looker", "accounting"]):
+                        sk_lines.append(line)
+    if sk_lines:
+        sk_text = "\n".join(sk_lines)
+
+    # Fallback for experience: if exp_text is empty, inspect other and summary
+    if not exp_text.strip():
+        exp_fallbacks = []
+        for extra_lbl in ("other", "summary"):
+            for text in sec_map.get(extra_lbl, []):
+                if any(w in text.lower() for w in ["magang", "intern", "experience", "kerja", "analyst"]) or RANGE_REGEX.search(text):
+                    exp_fallbacks.append(text)
+        if exp_fallbacks:
+            exp_text = "\n".join(exp_fallbacks)
+
+    # Fallback for education: if ed_text is empty, inspect other and summary
+    if not ed_text.strip():
+        ed_fallbacks = []
+        for extra_lbl in ("other", "summary"):
+            for text in sec_map.get(extra_lbl, []):
+                if any(w in text.lower() for w in ["universitas", "university", "institut", "bachelor", "master", "sarjana", "s1", "s2", "d3"]):
+                    ed_fallbacks.append(text)
+        if ed_fallbacks:
+            ed_text = "\n".join(ed_fallbacks)
 
     # Parse sections
     experiences = parse_experiences(exp_text, full_text)

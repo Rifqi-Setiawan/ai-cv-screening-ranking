@@ -24,6 +24,46 @@ ROLE_FAMILY_PATTERNS = {
     "qa": [r"qa", r"quality assurance", r"tester", r"automation engineer"],
     "devops": [r"devops", r"sre", r"platform engineer", r"infrastructure"],
     "hr": [r"\bhr\b", r"human capital", r"recruiter", r"talent acquisition", r"sdm"],
+    "business_analyst": [
+        r"business analyst",
+        r"analis bisnis",
+        r"system analyst",
+        r"analis sistem",
+        r"business development",
+        r"bizdev",
+        r"business operation",
+        r"channel developer",
+        r"strategic planning",
+        r"perencana strategi",
+        r"konsultan bisnis",
+        r"business consultant",
+        r"operation.*analyst",
+        r"process analyst",
+    ],
+    "financial_analyst": [
+        r"financial analyst",
+        r"finance analyst",
+        r"analis keuangan",
+        r"investment analyst",
+        r"analis investasi",
+        r"corporate finance",
+        r"treasury",
+        r"finance\b",
+        r"keuangan",
+        r"accounting",
+        r"akuntansi",
+        r"auditor",
+    ],
+    "consultant": [
+        r"consultant",
+        r"konsultan",
+        r"management consultant",
+        r"konsultan manajemen",
+        r"advisory",
+        r"surveyor",
+        r"peneliti",
+        r"researcher",
+    ],
     "civil_engineering": [
         r"sipil",
         r"civil",
@@ -106,6 +146,31 @@ CONCEPT_ALIASES = {
     "cert:skt": ["skt", "sertifikat keterampilan"],
     "cert:k3_konstruksi": ["k3", "ahli k3", "k3 konstruksi", "bimtek k3", "ahli keselamatan", "hse"],
     "education:civil_engineering": ["teknik sipil", "civil engineering", "teknik bangunan", "sarjana terapan teknik sipil", "sipil"],
+    "role_family:business_analyst": ["business analyst", "analis bisnis", "business development", "consultant", "analyst", "analis"],
+    "role_family:management_consultant": ["consultant", "konsultan", "advisory", "strategic", "business consultant"],
+    "role_family:financial_analyst": ["financial analyst", "finance analyst", "analis keuangan", "investment analyst", "analis investasi", "finance", "keuangan"],
+    "skill:microsoft_excel": ["excel", "ms excel", "microsoft excel", "spreadsheet", "ms. office", "microsoft office", "google sheets", "pivot table", "power query", "vlookup"],
+    "skill:financial_modeling": ["financial model", "financial modeling", "pemodelan keuangan", "model keuangan", "pemodelan data dan keuangan", "financial forecast", "proyeksi keuangan", "master budget", "budgeting", "financial projection"],
+    "skill:data_modeling": ["data modeling", "pemodelan data", "model data", "pemodelan data dan keuangan"],
+    "skill:data_analysis": ["data analysis", "analisis data", "analisa data", "data analyst", "analythical thinking", "analytical thinking", "spss", "r studio", "rstudio", "stata", "warppls", "olah data", "regresi", "kuantitatif"],
+    "skill:report_writing": ["penulisan laporan", "report writing", "laporan bisnis", "rekomendasi bisnis", "laporan keuangan", "menyusun laporan", "membuat laporan", "laporan", "reporting"],
+    "skill:presentation": ["presentasi", "presentation", "public speaking", "pitch deck", "slide", "powerpoint", "komunikasi", "presentations skill"],
+    "skill:business_analysis": ["business analysis", "analisis bisnis", "analisa bisnis", "business analyst", "analis bisnis", "business process", "proses bisnis", "gap analysis", "analisis operasional"],
+    "skill:cash_flow_projection": ["cash flow", "arus kas", "proyeksi arus kas", "laporan arus kas", "cash management"],
+    "skill:npv": ["npv", "net present value"],
+    "skill:irr": ["irr", "internal rate of return"],
+    "skill:sensitivity_analysis": ["analisis sensitivitas", "sensitivity analysis"],
+    "skill:investment_analysis": ["analisis investasi", "investment analysis", "analisis kelayakan investasi", "investasi", "investment", "kelayakan investasi"],
+    "skill:market_research": ["market research", "riset pasar", "penelitian pasar", "analisis pasar", "survei pasar"],
+    "skill:industry_analysis": ["analisis industri", "industry analysis", "competitive analysis", "analisis kompetitor", "analisis persaingan"],
+    "skill:feasibility_study": ["feasibility study", "studi kelayakan", "kelayakan bisnis", "kelayakan proyek", "analisis kelayakan"],
+    "skill:strategic_planning": ["strategic planning", "perencanaan strategis", "perencanaan strategi", "business plan", "rencana bisnis", "swot", "pestel", "business model canvas", "strategi bisnis"],
+    "skill:business_valuation": ["valuasi", "valuation", "business valuation", "valuasi bisnis", "penilaian bisnis"],
+    "skill:risk_management": ["manajemen risiko", "risk management", "analisis risiko", "mitigasi risiko"],
+    "skill:power_bi": ["power bi", "powerbi", "power-bi"],
+    "skill:tableau": ["tableau"],
+    "skill:data_visualization": ["data visualization", "visualisasi data", "dashboard", "tableau", "power bi", "powerbi", "looker", "looker studio", "google data studio", "vosviewer"],
+    "skill:sql": ["sql", "mysql", "postgresql", "query", "queries", "database"],
 }
 
 
@@ -172,8 +237,10 @@ def eval_experience_duration(
             accepted_rfs = ["civil_engineering", "engineering"]
         elif any("hr" in c for c in concepts) or any(term in desc_text for term in ["hr", "human capital", "recruiter", "talent", "payroll"]):
             accepted_rfs = ["hr"]
+        elif any("business" in c or "consult" in c or "finance" in c or "financial" in c for c in concepts) or any(term in desc_text for term in ["business analyst", "analis bisnis", "konsultan", "consultant", "analis keuangan", "financial analyst", "keuangan", "investasi"]):
+            accepted_rfs = ["business_analyst", "financial_analyst", "consultant", "data"]
         elif any("data" in c for c in concepts) or any(term in desc_text for term in ["data", "analyst", "analytics"]):
-            accepted_rfs = ["data"]
+            accepted_rfs = ["data", "business_analyst"]
         elif any("qa" in c for c in concepts) or any(term in desc_text for term in ["qa", "tester", "quality assurance"]):
             accepted_rfs = ["qa"]
         else:
@@ -263,7 +330,8 @@ def eval_skill(
 
     target_keywords: list[str] = []
     for c in all_target_concepts:
-        target_keywords.extend(CONCEPT_ALIASES.get(c, [c.split(":")[-1]]))
+        base = c.split(":")[-1]
+        target_keywords.extend(CONCEPT_ALIASES.get(c, [base, base.replace("_", " "), base.replace("_", "-")]))
 
     if not target_keywords:
         desc = req.get("description", "") + " " + req.get("source_text", "")
@@ -319,7 +387,20 @@ def eval_responsibility(
     concepts = [c.lower() for c in req.get("concepts", [])]
     target_kws: list[str] = []
     for c in concepts:
-        target_kws.extend(CONCEPT_ALIASES.get(c, [c.split(":")[-1]]))
+        base = c.split(":")[-1]
+        target_kws.extend(CONCEPT_ALIASES.get(c, [base, base.replace("_", " "), base.replace("_", "-")]))
+
+    if not target_kws:
+        desc = req.get("description", "") + " " + req.get("source_text", "")
+        potential = re.findall(r"[A-Za-z0-9+#]+", desc)
+        for term in potential:
+            t_lower = term.lower()
+            if len(t_lower) >= 3 and t_lower not in {
+                "dan", "yang", "atau", "dengan", "untuk", "dalam", "serta", "ke", "di", "dari",
+                "memahami", "mampu", "menguasai", "melakukan", "minimal", "sebagai", "merupakan",
+                "nilai", "tambah", "proyek", "pekerjaan"
+            }:
+                target_kws.extend(CONCEPT_ALIASES.get(f"skill:{t_lower}", [t_lower]))
 
     # For API building
     build_verbs = [
@@ -373,13 +454,40 @@ def eval_responsibility(
                     has_building_proj = True
                     evidence.append({"quote": b, "context": "internship", "verified": True})
 
+    # Also check job titles for responsibility concepts
+    if target_kws and not any("api" in kw for kw in target_kws):
+        for exp in profile.get("experiences", []):
+            t_lower = exp.get("title", "").lower()
+            for kw in target_kws:
+                if re.search(rf"\b{re.escape(kw)}", t_lower):
+                    evidence.append({"quote": exp.get("title", ""), "context": "experience", "verified": True})
+                    return "STRONG", 0.95, {}, evidence, []
+
     for prj in profile.get("projects", []):
         p_text = prj.get("text", "")
+        if target_kws and not any("api" in kw for kw in target_kws):
+            for kw in target_kws:
+                if re.search(rf"\b{re.escape(kw)}", p_text.lower()):
+                    evidence.append({"quote": p_text[:120], "context": "project", "verified": True})
+                    return "PARTIAL", 0.85, {}, evidence, []
         if any(re.search(v, p_text.lower()) for v in build_verbs) and any(
             re.search(t, p_text.lower()) for t in target_terms
         ):
             has_building_proj = True
             evidence.append({"quote": p_text[:100], "context": "project", "verified": True})
+
+    if target_kws and not any("api" in kw for kw in target_kws):
+        for sk in profile.get("skills", []):
+            for kw in target_kws:
+                if re.search(rf"\b{re.escape(kw)}", sk.lower()):
+                    evidence.append({"quote": f"Skills: {sk}", "context": "skills_list", "verified": True})
+                    return "PARTIAL", 0.85, {}, evidence, []
+
+        summary_comb = f"{profile.get('summary', '')} {profile.get('headline', '')}".lower()
+        for kw in target_kws:
+            if re.search(rf"\b{re.escape(kw)}", summary_comb):
+                evidence.append({"quote": f"Summary: {summary_comb[:120]}", "context": "summary", "verified": True})
+                return "PARTIAL", 0.80, {}, evidence, []
 
     if has_building_job:
         return "STRONG", 0.95, {}, evidence, []
@@ -421,6 +529,17 @@ def eval_education(
             strong_fields = ["teknik informatika", "ilmu komputer", "sistem informasi", "computer science", "informatika", "computer"]
         elif any(term in desc_text for term in ["hr", "psikologi", "sdm"]):
             strong_fields = ["psikologi", "manajemen", "hukum"]
+        elif any(term in desc_text for term in ["manajemen", "akuntansi", "ekonomi", "bisnis", "industri", "keuangan", "statistika"]) or any(c in ["field:management", "field:accounting", "field:economics", "field:industrial_engineering", "field:business"] for c in concepts):
+            strong_fields = [
+                "manajemen", "management", "akuntansi", "accounting", "ekonomi", "economics",
+                "teknik industri", "industrial engineering", "bisnis", "business", "administrasi bisnis",
+                "business administration", "keuangan", "finance", "statistika", "statistics",
+                "agribisnis", "agribusiness", "matematika", "mathematics", "hukum ekonomi syariah",
+                "sharia accounting", "digital business", "s.e", "s.stat", "mba",
+            ]
+            partial_fields = [
+                "hukum", "hubungan internasional", "international relations", "administrasi", "sains", "teknik", "sosial",
+            ]
         else:
             strong_fields = [
                 "teknik informatika",
@@ -460,7 +579,7 @@ def eval_education(
     for edu in edu_list:
         lvl = edu.get("level", "S1")
         lvl_r = level_rank.get(lvl, 3)
-        comb = f"{edu.get('degree_raw', '')} {edu.get('institution', '')}".lower()
+        comb = f"{edu.get('degree_raw', '')} {edu.get('major', '')} {edu.get('degree', '')} {edu.get('institution', '')} {edu.get('text', '')}".lower()
 
         is_strong_f = any(f in comb for f in strong_fields)
         is_partial_f = any(f in comb for f in partial_fields)
@@ -472,6 +591,15 @@ def eval_education(
         elif (is_strong_f and lvl_r < min_r) or is_partial_f:
             state = "PARTIAL"
             evidence.append({"quote": comb[:100], "context": "education", "verified": True})
+
+    if state == "NOT_DEMONSTRATED":
+        summary_comb = f"{profile.get('summary', '')} {profile.get('headline', '')}".lower()
+        if any(f in summary_comb for f in strong_fields) and any(lvl.lower() in summary_comb for lvl in ["s1", "s2", "sarjana", "bachelor", "master", "magister"]):
+            evidence.append({"quote": summary_comb[:100], "context": "summary", "verified": True})
+            return "STRONG", 0.90, {}, evidence, []
+        elif any(f in summary_comb for f in partial_fields):
+            evidence.append({"quote": summary_comb[:100], "context": "summary", "verified": True})
+            return "PARTIAL", 0.80, {}, evidence, []
 
     return state, 0.95, {}, evidence, []
 
