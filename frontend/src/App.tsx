@@ -855,7 +855,7 @@ Kualifikasi:
                 >
                   {availableJobs.map((j) => (
                     <option key={j.id} value={j.id}>
-                      {j.title} ({j.cv_count} CV)
+                      {j.title}
                     </option>
                   ))}
                 </select>
@@ -932,7 +932,9 @@ Kualifikasi:
             }`}
           >
             <Upload className="w-3.5 h-3.5" />
-            <span>2. Upload CV ({uploadedFiles.filter((f) => f.status === 'ready').length})</span>
+            <span>
+              2. Upload CV{uploadedFiles.length > 0 ? ` (${uploadedFiles.filter((f) => f.status === 'ready').length})` : ''}
+            </span>
           </button>
           <button
             onClick={() => setCurrentStep('leaderboard')}
@@ -941,7 +943,9 @@ Kualifikasi:
             }`}
           >
             <Trophy className="w-3.5 h-3.5 text-amber-500" />
-            <span>3. Leaderboard ({candidates.length})</span>
+            <span>
+              3. Leaderboard{candidates.length > 0 ? ` (${candidates.length})` : ''}
+            </span>
           </button>
         </nav>
 
