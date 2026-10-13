@@ -17,12 +17,12 @@ async def list_jobs(current_user: User = Depends(get_current_user)) -> list[JobR
     async with get_connection() as conn, conn.cursor() as cur:
         await cur.execute(
             """
-                SELECT j.id, j.tenant_id, j.title, j.status, j.location, j.employment_type, j.external_ref, j.created_at,
+                SELECT j.id, j.tenant_id, j.title, j.jd_text, j.status, j.location, j.employment_type, j.external_ref, j.created_at,
                        count(d.id) as cv_count
                 FROM jobs j
                 LEFT JOIN documents d ON d.job_id = j.id
                 WHERE j.tenant_id = %s
-                GROUP BY j.id, j.tenant_id, j.title, j.status, j.location, j.employment_type, j.external_ref, j.created_at
+                GROUP BY j.id, j.tenant_id, j.title, j.jd_text, j.status, j.location, j.employment_type, j.external_ref, j.created_at
                 ORDER BY j.created_at DESC
                 """,
             (current_user.tenant_id,),
@@ -37,9 +37,95 @@ async def list_jobs(current_user: User = Depends(get_current_user)) -> list[JobR
                 location=r["location"],
                 employment_type=r["employment_type"],
                 external_ref=r["external_ref"],
+                jd_text=r["jd_text"],
                 created_at=r["created_at"],
                 cv_count=r["cv_count"],
             )
+            for r in rows
+        ]
+
+
+@router.get("/{job_id}", response_model=JobResponse)
+async def get_job(
+    job_id: UUID,
+    current_user: User = Depends(get_current_user),
+) -> JobResponse:
+    async with get_connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
+            SELECT j.id, j.tenant_id, j.title, j.jd_text, j.status, j.location, j.employment_type, j.external_ref, j.created_at,
+                   count(d.id) as cv_count
+            FROM jobs j
+            LEFT JOIN documents d ON d.job_id = j.id
+            WHERE j.id = %s AND j.tenant_id = %s
+            GROUP BY j.id, j.tenant_id, j.title, j.jd_text, j.status, j.location, j.employment_type, j.external_ref, j.created_at
+            """,
+            (job_id, current_user.tenant_id),
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+        return JobResponse(
+            id=row["id"],
+            tenant_id=row["tenant_id"],
+            title=row["title"],
+            status=row["status"],
+            location=row["location"],
+            employment_type=row["employment_type"],
+            external_ref=row["external_ref"],
+            jd_text=row["jd_text"],
+            created_at=row["created_at"],
+            cv_count=row["cv_count"],
+        )
+
+
+@router.get("/{job_id}/requirements")
+async def get_job_requirements(
+    job_id: UUID,
+    current_user: User = Depends(get_current_user),
+) -> list[dict]:
+    async with get_connection() as conn, conn.cursor() as cur:
+        # Find latest requirement_set for this job
+        await cur.execute(
+            """
+            SELECT id, status, version, category_weights
+            FROM requirement_sets
+            WHERE job_id = %s AND tenant_id = %s
+            ORDER BY version DESC
+            LIMIT 1
+            """,
+            (job_id, current_user.tenant_id),
+        )
+        rs = await cur.fetchone()
+        if not rs:
+            return []
+
+        await cur.execute(
+            """
+            SELECT id, requirement_id, description, category, kind, importance, weight, concepts, params, hard_filter, source_text, lint_flags
+            FROM requirements
+            WHERE requirement_set_id = %s AND tenant_id = %s
+            ORDER BY requirement_id
+            """,
+            (rs["id"], current_user.tenant_id),
+        )
+        rows = await cur.fetchall()
+        return [
+            {
+                "id": str(r["id"]),
+                "requirement_id": r["requirement_id"],
+                "description": r["description"],
+                "category": r["category"],
+                "kind": r["kind"],
+                "importance": r["importance"],
+                "weight": float(r["weight"]) if r["weight"] is not None else 1.0,
+                "concepts": r["concepts"] or [],
+                "params": r["params"] or {},
+                "hard_filter": r["hard_filter"],
+                "source_text": r["source_text"],
+                "lint_flags": r["lint_flags"] or [],
+            }
             for r in rows
         ]
 

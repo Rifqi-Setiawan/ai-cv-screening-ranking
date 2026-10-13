@@ -24,6 +24,7 @@ import {
 } from 'lucide-react'
 import type { CandidateDetail, Requirement } from './types'
 import { INITIAL_REQUIREMENTS } from './mockData'
+import { ROLE_TEMPLATES } from './jobTemplates'
 
 export default function App() {
   // Navigation & Workflow state
@@ -155,6 +156,42 @@ Kualifikasi:
       setJobTitle(title)
       setCurrentJobTitle(title)
     }
+
+    try {
+      // 1. Fetch full job details (including jd_text, location, employment_type)
+      const res = await fetch(`/api/v1/jobs/${jId}`, { headers: { ...getAuthHeaders() } })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.title) {
+          setJobTitle(data.title)
+          setCurrentJobTitle(data.title)
+        }
+        if (data.jd_text) {
+          setJobDescription(data.jd_text)
+        }
+        if (data.location) {
+          setJobLocation(data.location)
+        }
+        if (data.employment_type) {
+          setJobType(data.employment_type)
+        }
+      }
+
+      // 2. Fetch requirements if already created for this job
+      const resReq = await fetch(`/api/v1/jobs/${jId}/requirements`, { headers: { ...getAuthHeaders() } })
+      if (resReq.ok) {
+        const reqList = await resReq.json()
+        if (Array.isArray(reqList) && reqList.length > 0) {
+          setRequirements(reqList)
+          setCriteriaApproved(true)
+        } else {
+          setCriteriaApproved(false)
+        }
+      }
+    } catch (e) {
+      console.warn('Error fetching job details:', e)
+    }
+
     await fetchJobCvsStatus(jId)
     await fetchLatestLeaderboard(jId)
   }
@@ -946,6 +983,34 @@ Kualifikasi:
             <div>
               <h2 className="text-lg font-bold text-slate-900">Setup Lowongan Kerja</h2>
               <p className="text-sm text-slate-500">Tentukan rincian lowongan dan masukkan deskripsi pekerjaan untuk menyusun kriteria evaluasi.</p>
+            </div>
+
+            {/* Role Templates Quick Selector */}
+            <div className="bg-gradient-to-r from-indigo-50/80 via-slate-50 to-indigo-50/40 border border-indigo-100/80 rounded-xl p-4 shadow-2xs">
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="text-xs font-bold text-indigo-950 flex items-center space-x-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Pilih Template Role Standar Industri:</span>
+                </span>
+                <span className="text-[11px] text-slate-500 hidden sm:inline">1-Klik otomatis mengisi form & standar ATS</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {ROLE_TEMPLATES.map((tmpl) => (
+                  <button
+                    key={tmpl.id}
+                    type="button"
+                    onClick={() => {
+                      setJobTitle(tmpl.title)
+                      setJobLocation(tmpl.location)
+                      setJobType(tmpl.employmentType)
+                      setJobDescription(tmpl.jd_text)
+                    }}
+                    className="text-xs px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50/60 font-semibold transition-all shadow-2xs hover:shadow-xs active:scale-98"
+                  >
+                    {tmpl.role}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="space-y-4">
