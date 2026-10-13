@@ -60,6 +60,7 @@ Kualifikasi:
   // Auth & Backend sync state
   const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem('cv_screening_token'))
   const [currentJobId, setCurrentJobId] = useState<string | null>(() => localStorage.getItem('cv_screening_job_id'))
+  const [currentJobTitle, setCurrentJobTitle] = useState<string>('')
   const [currentRunId, setCurrentRunId] = useState<string | null>(null)
   const [availableJobs, setAvailableJobs] = useState<Array<{ id: string; title: string; cv_count: number }>>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -149,7 +150,10 @@ Kualifikasi:
   const selectJob = async (jId: string, title?: string) => {
     setCurrentJobId(jId)
     localStorage.setItem('cv_screening_job_id', jId)
-    if (title) setJobTitle(title)
+    if (title) {
+      setJobTitle(title)
+      setCurrentJobTitle(title)
+    }
     await fetchJobCvsStatus(jId)
     await fetchLatestLeaderboard(jId)
   }
@@ -586,6 +590,38 @@ Kualifikasi:
       return
     }
     setIsCompiling(true)
+
+    // Ensure new or updated job is created in backend
+    try {
+      if (!currentJobId || (currentJobTitle && currentJobTitle !== jobTitle)) {
+        const createRes = await fetch('/api/v1/jobs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({
+            title: jobTitle || 'Lowongan Baru',
+            jd_text: jobDescription,
+            location: jobLocation || 'Indonesia',
+            employment_type: jobType || 'full_time',
+            external_ref: `JD-${Date.now().toString().slice(-6)}`,
+          }),
+        })
+        if (createRes.ok) {
+          const newJob = await createRes.json()
+          setCurrentJobId(newJob.id)
+          setCurrentJobTitle(newJob.title)
+          localStorage.setItem('cv_screening_job_id', newJob.id)
+          setAvailableJobs((prev) => [
+            { id: newJob.id, title: newJob.title, cv_count: 0 },
+            ...prev.filter((j) => j.id !== newJob.id),
+          ])
+          setUploadedFiles([])
+          setCandidates([])
+        }
+      }
+    } catch (e) {
+      console.warn('Job create error during compile:', e)
+    }
+
     try {
       const res = await fetch('/api/v1/requirements/compile-preview', {
         method: 'POST',
@@ -660,14 +696,33 @@ Kualifikasi:
     }
   }
 
-  const handleApproveCriteria = () => {
+  const handleApproveCriteria = async () => {
     if (prohibitedFlags.length > 0) {
       alert('Terdapat kriteria diskriminatif terlarang! Harap hapus kriteria tersebut sebelum menyetujui.')
       return
     }
     setCriteriaApproved(true)
-    setCriteriaVersion((v) => v + 1)
-    alert(`Kriteria lowongan berhasil disetujui dan dikunci (Versi ${criteriaVersion + 1}).`)
+    const nextVer = criteriaVersion + 1
+    setCriteriaVersion(nextVer)
+
+    // Automatically persist approved requirements to backend
+    if (currentJobId) {
+      try {
+        await fetch(`/api/v1/jobs/${currentJobId}/requirements/import-approved`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({
+            requirement_set_version: nextVer,
+            category_weights: { EXPERIENCE: 40, HARD_SKILLS: 30, EDUCATION_CERT: 15, ACHIEVEMENT: 15 },
+            requirements: requirements,
+            status: 'APPROVED',
+          }),
+        })
+      } catch (e) {
+        console.warn('Requirements persist error:', e)
+      }
+    }
+    alert(`Kriteria lowongan berhasil disetujui dan dikunci (Versi ${nextVer}).`)
   }
 
   return (
@@ -697,6 +752,26 @@ Kualifikasi:
                     </option>
                   ))}
                 </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCurrentJobId('')
+                    setCurrentJobTitle('')
+                    setJobTitle('')
+                    setJobDescription('')
+                    setJobLocation('')
+                    setRequirements([])
+                    setUploadedFiles([])
+                    setCandidates([])
+                    setCriteriaApproved(false)
+                    setCurrentStep('setup')
+                  }}
+                  className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-medium transition-colors flex items-center space-x-1"
+                  title="Tambah Lowongan Baru"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>+ Baru</span>
+                </button>
               </div>
             ) : (
               <p className="text-xs text-slate-500">Platform Evaluasi & Pemeringkatan Kandidat Berpresisi Tinggi</p>

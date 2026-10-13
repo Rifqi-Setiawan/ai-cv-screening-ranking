@@ -95,17 +95,39 @@ class ModelGateway:
         output_hash = ""
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=90.0) as client:
                 res = await client.post(f"{self.base_url}/chat/completions", json=payload, headers=headers)
                 latency_ms = int((time.time() - t0) * 1000)
 
                 if res.status_code == 200:
-                    resp_data = res.json()
                     status_str = "SUCCESS"
-                    usage = resp_data.get("usage", {})
-                    tokens_in = usage.get("prompt_tokens", 0)
-                    tokens_out = usage.get("completion_tokens", 0)
-                    content_str = resp_data["choices"][0]["message"]["content"]
+                    content_str = ""
+                    tokens_in = tokens_out = 0
+
+                    if res.text.strip().startswith("data:"):
+                        content_parts = []
+                        for line in res.text.splitlines():
+                            line = line.strip()
+                            if line.startswith("data:") and line != "data: [DONE]":
+                                chunk_data = line[5:].strip()
+                                if chunk_data:
+                                    try:
+                                        c = json.loads(chunk_data)
+                                        for ch in c.get("choices", []):
+                                            content_parts.append(
+                                                ch.get("delta", {}).get("content", "")
+                                                or ch.get("message", {}).get("content", "")
+                                            )
+                                    except Exception:
+                                        pass
+                        content_str = "".join(content_parts)
+                    else:
+                        resp_data = res.json()
+                        usage = resp_data.get("usage", {})
+                        tokens_in = usage.get("prompt_tokens", 0)
+                        tokens_out = usage.get("completion_tokens", 0)
+                        content_str = resp_data["choices"][0]["message"]["content"]
+
                     output_hash = hashlib.sha256(content_str.encode()).hexdigest()
 
                     # Record model call without storing CV text
@@ -162,7 +184,7 @@ class ModelGateway:
                     logger.warning(f"9Router returned HTTP {res.status_code}: {res.text[:200]}")
                     return None
         except Exception as e:
-            logger.warning(f"9Router connection failed ({e}). Falling back to deterministic rules.")
+            logger.warning(f"9Router connection failed ({type(e).__name__}: {e}). Falling back to deterministic rules.")
             return None
 
     async def _record_call(

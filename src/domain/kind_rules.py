@@ -24,6 +24,39 @@ ROLE_FAMILY_PATTERNS = {
     "qa": [r"qa", r"quality assurance", r"tester", r"automation engineer"],
     "devops": [r"devops", r"sre", r"platform engineer", r"infrastructure"],
     "hr": [r"\bhr\b", r"human capital", r"recruiter", r"talent acquisition", r"sdm"],
+    "civil_engineering": [
+        r"sipil",
+        r"civil",
+        r"konstruksi",
+        r"construction",
+        r"struktur",
+        r"pelaksana",
+        r"site manager",
+        r"site engineer",
+        r"project engineer",
+        r"pengawas lapangan",
+        r"pengawas proyek",
+        r"estimator",
+        r"drafter",
+        r"survei",
+        r"surveyor",
+        r"tunnel",
+        r"drainase",
+        r"kontraktor",
+        r"konsultan",
+        r"quality control",
+        r"qc.*piping",
+        r"qc.*structure",
+    ],
+    "engineering": [
+        r"engineer",
+        r"teknik",
+        r"rekayasa",
+        r"drafter",
+        r"pelaksana",
+        r"pengawas",
+        r"mandor",
+    ],
 }
 
 CONCEPT_ALIASES = {
@@ -43,6 +76,36 @@ CONCEPT_ALIASES = {
     "skill:payroll": ["payroll", "penggajian", "upah"],
     "skill:bpjs": ["bpjs", "bpjs kesehatan", "bpjs ketenagakerjaan"],
     "skill:labor_law_id": ["uu ketenagakerjaan", "pkwt", "pkwtt", "hubungan industrial"],
+    "role_family:civil_engineering": ["sipil", "civil", "konstruksi", "pelaksana", "site manager", "site engineer", "pengawas lapangan"],
+    "experience:civil_construction": ["sipil", "konstruksi", "pelaksana", "site engineer", "proyek", "pengawas", "kontraktor", "smelter", "bangunan"],
+    "skill:autocad": ["autocad", "cad", "computer aided design", "drafting", "shop drawing", "gambar teknik", "gambar kerja"],
+    "skill:technical_drawing": ["gambar teknik", "shop drawing", "gambar kerja", "autocad", "cad", "drafting"],
+    "skill:shop_drawing": ["shop drawing", "gambar kerja", "gambar teknik", "autocad"],
+    "skill:sketchup": ["sketchup", "3d modelling", "sketch up"],
+    "skill:sap2000": ["sap2000", "sap 2000", "etabs", "analisis struktur"],
+    "skill:etabs": ["etabs", "sap2000"],
+    "skill:rab_calculation": ["rab", "rencana anggaran biaya", "budgeting", "estimasi biaya", "estimator", "bill of quantity", "boq"],
+    "skill:project_scheduling": ["ms project", "microsoft project", "penjadwalan", "scheduling", "kurva s", "manajemen proyek"],
+    "skill:microsoft_excel": ["excel", "ms excel", "microsoft excel", "spreadsheet", "ms. office", "microsoft office"],
+    "skill:microsoft_project": ["microsoft project", "ms project", "project"],
+    "skill:earthwork": ["pekerjaan tanah", "tanah dasar", "galian", "timbunan", "cut and fill", "earthwork"],
+    "skill:foundation": ["pondasi", "foundation", "tiang pancang", "bored pile", "base a"],
+    "skill:concrete_work": ["beton", "concrete", "pembesian", "bekisting", "lean concrete", "rigid pavement", "readymix"],
+    "skill:drainage": ["drainase", "drainage", "saluran air", "gorong", "plumbing"],
+    "skill:drainase": ["drainase", "drainage", "saluran air", "gorong", "plumbing"],
+    "skill:finishing_work": ["finishing", "pekerjaan finishing", "arsitektur"],
+    "skill:k3_konstruksi": ["k3", "hse", "keselamatan kerja", "keselamatan dan kesehatan kerja", "k3 konstruksi", "ahli k3", "bimtek k3"],
+    "skill:construction_safety": ["k3", "hse", "keselamatan kerja", "safety"],
+    "skill:site_supervision": ["pengawas", "pengawasan", "site supervision", "pelaksana", "mandor", "site manager"],
+    "skill:subcontractor_management": ["subkontraktor", "mandor", "tenaga kerja", "pekerja", "vendor"],
+    "skill:progress_reporting": ["laporan progres", "laporan harian", "laporan mingguan", "laporan bulanan", "opname", "progress report"],
+    "skill:quality_control": ["quality control", "pengawasan mutu", "inspeksi", "qc", "qa/qc"],
+    "skill:sports_facility_construction": ["lapangan", "olahraga", "sports", "stadion"],
+    "skill:swimming_pool_construction": ["kolam renang", "pool", "waterwork"],
+    "cert:ska": ["ska", "sertifikat keahlian", "ahli muda", "ahli madya", "ahli utama", "lpjk"],
+    "cert:skt": ["skt", "sertifikat keterampilan"],
+    "cert:k3_konstruksi": ["k3", "ahli k3", "k3 konstruksi", "bimtek k3", "ahli keselamatan", "hse"],
+    "education:civil_engineering": ["teknik sipil", "civil engineering", "teknik bangunan", "sarjana terapan teknik sipil", "sipil"],
 }
 
 
@@ -100,8 +163,29 @@ def eval_experience_duration(
 ) -> tuple[str, float, dict[str, Any], list[dict[str, Any]], list[str]]:
     """Evaluates EXPERIENCE_DURATION requirements (e.g. R1: min 3 years)."""
     params = req.get("params", {})
-    min_months = params.get("min_months", 36)
-    accepted_rfs = [rf.lower() for rf in params.get("accepted_role_families", ["backend", "fullstack"])]
+    accepted_rfs = [rf.lower() for rf in params.get("accepted_role_families", [])]
+    desc_text = (req.get("description", "") + " " + req.get("source_text", "")).lower()
+
+    if not accepted_rfs:
+        concepts = [c.lower() for c in req.get("concepts", [])]
+        if any("civil" in c for c in concepts) or any(term in desc_text for term in ["sipil", "civil", "konstruksi", "lapangan", "proyek sipil", "bangunan"]):
+            accepted_rfs = ["civil_engineering", "engineering"]
+        elif any("hr" in c for c in concepts) or any(term in desc_text for term in ["hr", "human capital", "recruiter", "talent", "payroll"]):
+            accepted_rfs = ["hr"]
+        elif any("data" in c for c in concepts) or any(term in desc_text for term in ["data", "analyst", "analytics"]):
+            accepted_rfs = ["data"]
+        elif any("qa" in c for c in concepts) or any(term in desc_text for term in ["qa", "tester", "quality assurance"]):
+            accepted_rfs = ["qa"]
+        else:
+            accepted_rfs = ["backend", "fullstack"]
+
+    min_months = params.get("min_months")
+    if min_months is None:
+        m_dur = re.search(r"(\d+)\s*(?:-\s*(\d+))?\s*(?:tahun|year)", desc_text)
+        if m_dur:
+            min_months = int(m_dur.group(1)) * 12
+        else:
+            min_months = 36
 
     as_of_y, as_of_m = parse_ym("present", as_of)  # type: ignore[misc]
     as_of_total_m = as_of_y * 12 + as_of_m
@@ -181,6 +265,18 @@ def eval_skill(
     for c in all_target_concepts:
         target_keywords.extend(CONCEPT_ALIASES.get(c, [c.split(":")[-1]]))
 
+    if not target_keywords:
+        desc = req.get("description", "") + " " + req.get("source_text", "")
+        potential = re.findall(r"[A-Za-z0-9+#]+", desc)
+        for term in potential:
+            t_lower = term.lower()
+            if len(t_lower) >= 3 and t_lower not in {
+                "dan", "yang", "atau", "dengan", "untuk", "dalam", "serta", "ke", "di", "dari",
+                "memahami", "mampu", "menguasai", "melakukan", "minimal", "sebagai", "merupakan",
+                "nilai", "tambah", "proyek", "pekerjaan"
+            }:
+                target_keywords.extend(CONCEPT_ALIASES.get(f"skill:{t_lower}", [t_lower]))
+
     evidence = []
 
     # Context 1: Dated jobs (STRONG)
@@ -204,6 +300,13 @@ def eval_skill(
             if re.search(rf"\b{re.escape(kw)}", sk, re.IGNORECASE):
                 evidence.append({"quote": f"Skills: {sk}", "context": "skills_list", "verified": True})
                 return "PARTIAL", 0.85, {}, evidence, []
+
+    # Fallback context: In summary or headline
+    summary_text = f"{profile.get('summary', '')} {profile.get('headline', '')}"
+    for kw in target_keywords:
+        if re.search(rf"\b{re.escape(kw)}", summary_text, re.IGNORECASE):
+            evidence.append({"quote": f"Summary: {summary_text[:120]}", "context": "summary", "verified": True})
+            return "PARTIAL", 0.80, {}, evidence, []
 
     return "NOT_DEMONSTRATED", 0.95, {}, [], []
 
@@ -292,12 +395,34 @@ def eval_education(
 ) -> tuple[str, float, dict[str, Any], list[dict[str, Any]], list[str]]:
     """Evaluates EDUCATION requirements."""
     params = req.get("params", {})
-    min_level = params.get("min_level", "S1")
-    strong_fields = [
-        f.lower()
-        for f in params.get(
-            "strong_fields",
-            [
+    desc_text = (req.get("description", "") + " " + req.get("source_text", "")).lower()
+    concepts = [c.lower() for c in req.get("concepts", [])]
+
+    min_level = params.get("min_level")
+    if not min_level:
+        if "d3" in desc_text and "s1" in desc_text:
+            min_level = "D3"
+        elif "s1" in desc_text:
+            min_level = "S1"
+        elif "d3" in desc_text:
+            min_level = "D3"
+        elif "d4" in desc_text:
+            min_level = "D4"
+        elif "sma" in desc_text or "smk" in desc_text:
+            min_level = "SMA"
+        else:
+            min_level = "S1"
+
+    strong_fields = [f.lower() for f in params.get("strong_fields", [])]
+    if not strong_fields:
+        if any("civil" in c for c in concepts) or any(term in desc_text for term in ["sipil", "civil", "bangunan"]):
+            strong_fields = ["teknik sipil", "civil engineering", "teknik bangunan", "sarjana terapan teknik sipil", "sipil"]
+        elif any(term in desc_text for term in ["informatika", "komputer", "software", "cs"]):
+            strong_fields = ["teknik informatika", "ilmu komputer", "sistem informasi", "computer science", "informatika", "computer"]
+        elif any(term in desc_text for term in ["hr", "psikologi", "sdm"]):
+            strong_fields = ["psikologi", "manajemen", "hukum"]
+        else:
+            strong_fields = [
                 "teknik informatika",
                 "ilmu komputer",
                 "sistem informasi",
@@ -306,10 +431,11 @@ def eval_education(
                 "computer",
                 "psikologi",
                 "manajemen",
-            ],
-        )
-    ]
-    partial_fields = [f.lower() for f in params.get("partial_fields", ["teknik komputer", "matematika", "rekayasa"])]
+                "teknik sipil",
+                "civil engineering",
+            ]
+
+    partial_fields = [f.lower() for f in params.get("partial_fields", ["teknik komputer", "matematika", "rekayasa", "arsitektur", "teknik pengelasan", "welding"])]
 
     level_rank = {"SMA": 1, "SMK": 1, "D3": 2, "D4": 3, "S1": 3, "S2": 4, "S3": 5}
     min_r = level_rank.get(min_level, 3)
@@ -322,6 +448,14 @@ def eval_education(
         p_txt = prj.get("text", "")
         if "s1 informatika" in p_txt.lower() or "universitas" in p_txt.lower():
             edu_list.append({"level": "S1", "degree_raw": p_txt, "institution": ""})
+
+    # Also search in profile summary if education list is empty
+    if not edu_list:
+        summary_txt = profile.get("summary", "")
+        for deg in ["s1", "d3", "d4", "sarjana", "diploma"]:
+            if deg in summary_txt.lower():
+                edu_list.append({"level": deg.upper(), "degree_raw": summary_txt[:150], "institution": ""})
+                break
 
     for edu in edu_list:
         lvl = edu.get("level", "S1")
@@ -348,7 +482,12 @@ def eval_certification(
 ) -> tuple[str, float, dict[str, Any], list[dict[str, Any]], list[str]]:
     """Evaluates CERTIFICATION requirements."""
     concepts = [c.lower() for c in req.get("concepts", [])]
-    cert_certs = profile.get("certifications", [])
+    desc_text = (req.get("description", "") + " " + req.get("source_text", "")).lower()
+    cert_certs = list(profile.get("certifications", []))
+    # Also check candidate skills list which may contain certification names
+    for sk in profile.get("skills", []):
+        if any(term in sk.lower() for term in ["k3", "sertifikat", "certificate", "competence", "kompetensi", "ahli", "bnsp", "inspektur"]):
+            cert_certs.append(sk)
 
     evidence = []
     for c in cert_certs:
@@ -357,15 +496,23 @@ def eval_certification(
             "cert:cloud" in concepts
             or "cert:aws" in concepts
             or "cert:gcp" in concepts
-            or "cloud" in req.get("description", "").lower()
+            or "cloud" in desc_text
         ) and any(term in c_lower for term in ["aws certified", "google cloud", "azure", "cloud developer"]):
             evidence.append({"quote": c, "context": "certification", "verified": True})
             return "STRONG", 0.95, {}, evidence, []
         if (
             "cert:hr" in concepts
-            or "hr" in req.get("description", "").lower()
-            or "bnsp" in req.get("description", "").lower()
+            or "hr" in desc_text
+            or "bnsp" in desc_text
         ) and any(term in c_lower for term in ["human capital", "bnsp", "chrp", "hr"]):
+            evidence.append({"quote": c, "context": "certification", "verified": True})
+            return "STRONG", 0.95, {}, evidence, []
+        if (
+            "cert:ska" in concepts
+            or "cert:skt" in concepts
+            or "cert:k3" in concepts
+            or any(term in desc_text for term in ["ska", "skt", "k3", "konstruksi", "inspektur", "keselamatan"])
+        ) and any(term in c_lower for term in ["ska", "skt", "k3", "keselamatan", "hse", "inspektur", "ahli k3", "kompetensi", "bnsp", "bimtek"]):
             evidence.append({"quote": c, "context": "certification", "verified": True})
             return "STRONG", 0.95, {}, evidence, []
 
