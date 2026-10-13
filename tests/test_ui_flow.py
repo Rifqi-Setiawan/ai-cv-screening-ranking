@@ -74,6 +74,10 @@ def test_main_ui_flow_and_text_checks(static_server):
         # 4. Screen 2: Upload CV
         page.wait_for_selector("text=Upload CV Pelamar")
         assert page.is_visible("text=Tarik berkas CV ke sini")
+        # Load sample golden dataset files if table starts clean
+        if page.is_visible("text=Muat 15 Sampel Golden Dataset"):
+            page.click("text=Muat 15 Sampel Golden Dataset")
+            page.wait_for_timeout(500)
         assert page.is_visible("text=S1_senior_backend_id.pdf")
         assert page.is_visible("text=E1_empty_cv.pdf")
         assert page.is_visible("text=Perlu Cek Manual")

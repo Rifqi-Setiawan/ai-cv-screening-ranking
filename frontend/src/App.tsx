@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Plus,
   Trash2,
+  Pencil,
   ExternalLink,
   ChevronRight,
   ShieldAlert,
@@ -180,6 +181,75 @@ Kualifikasi:
       }
     } catch (e) {
       console.warn('Error fetching jobs:', e)
+    }
+  }
+
+  const handleRenameJob = async () => {
+    if (!currentJobId) return
+    const newTitle = window.prompt('Ubah nama lowongan:', currentJobTitle || jobTitle)
+    if (!newTitle || !newTitle.trim() || newTitle.trim() === (currentJobTitle || jobTitle)) return
+    try {
+      const res = await fetch(`/api/v1/jobs/${currentJobId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ title: newTitle.trim() }),
+      })
+      if (res.ok) {
+        const updated = await res.json()
+        setJobTitle(updated.title)
+        setCurrentJobTitle(updated.title)
+        setAvailableJobs((prev) =>
+          prev.map((j) => (j.id === currentJobId ? { ...j, title: updated.title } : j))
+        )
+      } else {
+        alert('Gagal mengubah nama lowongan.')
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Terjadi kesalahan jaringan saat mengubah nama lowongan.')
+    }
+  }
+
+  const handleDeleteJob = async () => {
+    if (!currentJobId) return
+    const title = currentJobTitle || jobTitle || 'Lowongan ini'
+    const confirmed = window.confirm(
+      `Hapus lowongan "${title}"?\n\nSemua berkas CV dan hasil evaluasi lowongan ini akan dihapus permanen.`
+    )
+    if (!confirmed) return
+    try {
+      const res = await fetch(`/api/v1/jobs/${currentJobId}`, {
+        method: 'DELETE',
+        headers: {
+          ...getAuthHeaders(),
+        },
+      })
+      if (res.ok) {
+        const remaining = availableJobs.filter((j) => j.id !== currentJobId)
+        setAvailableJobs(remaining)
+        if (remaining.length > 0) {
+          await selectJob(remaining[0].id, remaining[0].title)
+        } else {
+          setCurrentJobId('')
+          setCurrentJobTitle('')
+          setJobTitle('')
+          setJobDescription('')
+          setJobLocation('')
+          setRequirements([])
+          setUploadedFiles([])
+          setCandidates([])
+          setCriteriaApproved(false)
+          setCurrentStep('setup')
+        }
+      } else {
+        alert('Gagal menghapus lowongan.')
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Terjadi kesalahan jaringan saat menghapus lowongan.')
     }
   }
 
@@ -736,7 +806,7 @@ Kualifikasi:
           <div>
             <h1 className="text-base font-bold text-slate-900 leading-tight">AI CV Screening & Ranking</h1>
             {availableJobs.length > 0 ? (
-              <div className="flex items-center space-x-1.5 mt-0.5">
+              <div className="flex items-center space-x-2 mt-1">
                 <span className="text-xs text-slate-500 font-medium hidden sm:inline">Lowongan:</span>
                 <select
                   value={currentJobId || ''}
@@ -744,7 +814,7 @@ Kualifikasi:
                     const selected = availableJobs.find((j) => j.id === e.target.value)
                     if (selected) selectJob(selected.id, selected.title)
                   }}
-                  className="text-xs bg-slate-100 border border-slate-300 font-bold text-indigo-900 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 max-w-[200px] truncate"
+                  className="text-xs bg-slate-50 hover:bg-white border border-slate-300 font-bold text-indigo-950 rounded-md px-2.5 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500 min-w-[200px] max-w-[340px] truncate shadow-2xs transition-colors"
                 >
                   {availableJobs.map((j) => (
                     <option key={j.id} value={j.id}>
@@ -752,6 +822,24 @@ Kualifikasi:
                     </option>
                   ))}
                 </select>
+                <button
+                  type="button"
+                  onClick={handleRenameJob}
+                  disabled={!currentJobId}
+                  className="h-7 w-7 inline-flex items-center justify-center text-slate-500 hover:text-indigo-600 bg-white hover:bg-indigo-50/60 rounded-md border border-slate-200 hover:border-indigo-300 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-2xs"
+                  title="Ubah Nama Lowongan (Rename)"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteJob}
+                  disabled={!currentJobId}
+                  className="h-7 w-7 inline-flex items-center justify-center text-slate-400 hover:text-rose-600 bg-white hover:bg-rose-50 rounded-md border border-slate-200 hover:border-rose-300 transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-2xs"
+                  title="Hapus Lowongan Ini (Delete)"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -766,11 +854,11 @@ Kualifikasi:
                     setCriteriaApproved(false)
                     setCurrentStep('setup')
                   }}
-                  className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-medium transition-colors flex items-center space-x-1"
-                  title="Tambah Lowongan Baru"
+                  className="h-7 px-2.5 text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-md font-semibold transition-all flex items-center space-x-1 shadow-2xs"
+                  title="Buat Lowongan Baru"
                 >
-                  <Plus className="w-3 h-3" />
-                  <span>+ Baru</span>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Baru</span>
                 </button>
               </div>
             ) : (

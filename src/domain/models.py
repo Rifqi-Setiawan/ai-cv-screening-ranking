@@ -58,6 +58,13 @@ class JobCreate(BaseModel):
     external_ref: str | None = None
 
 
+class JobUpdate(BaseModel):
+    title: str | None = None
+    location: str | None = None
+    employment_type: str | None = None
+    status: str | None = None
+
+
 class JobResponse(BaseModel):
     id: UUID
     tenant_id: UUID

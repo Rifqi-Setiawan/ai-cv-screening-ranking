@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from uuid import UUID
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.api.dependencies import get_current_user, require_role
-from src.domain.models import JobCreate, JobResponse, User, UserRole
+from src.domain.models import JobCreate, JobResponse, JobUpdate, User, UserRole
 from src.infrastructure.database import get_connection
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["Jobs"])
@@ -92,3 +93,119 @@ async def create_job(
             external_ref=row["external_ref"],
             created_at=row["created_at"],
         )
+
+
+@router.patch("/{job_id}", response_model=JobResponse)
+async def update_job(
+    job_id: UUID,
+    req: JobUpdate,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.RECRUITER])),
+) -> JobResponse:
+    async with get_connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            """
+            SELECT id, tenant_id, title, status, location, employment_type, external_ref, created_at
+            FROM jobs
+            WHERE id = %s AND tenant_id = %s
+            """,
+            (job_id, current_user.tenant_id),
+        )
+        existing = await cur.fetchone()
+        if not existing:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+        updates: list[str] = []
+        params: list[object] = []
+        if req.title is not None and req.title.strip():
+            updates.append("title = %s")
+            params.append(req.title.strip())
+        if req.location is not None:
+            updates.append("location = %s")
+            params.append(req.location.strip())
+        if req.employment_type is not None:
+            updates.append("employment_type = %s")
+            params.append(req.employment_type.strip())
+        if req.status is not None:
+            updates.append("status = %s")
+            params.append(req.status.strip())
+
+        if updates:
+            params.extend([job_id, current_user.tenant_id])
+            await cur.execute(
+                f"""
+                UPDATE jobs
+                SET {", ".join(updates)}
+                WHERE id = %s AND tenant_id = %s
+                RETURNING id, tenant_id, title, status, location, employment_type, external_ref, created_at
+                """,
+                tuple(params),
+            )
+            row = await cur.fetchone()
+        else:
+            row = existing
+
+        await cur.execute("SELECT count(id) as count FROM documents WHERE job_id = %s", (job_id,))
+        doc_row = await cur.fetchone()
+        cv_count = doc_row["count"] if doc_row else 0
+
+        await conn.commit()
+        return JobResponse(
+            id=row["id"],
+            tenant_id=row["tenant_id"],
+            title=row["title"],
+            status=row["status"],
+            location=row["location"],
+            employment_type=row["employment_type"],
+            external_ref=row["external_ref"],
+            created_at=row["created_at"],
+            cv_count=cv_count,
+        )
+
+
+@router.delete("/{job_id}", status_code=status.HTTP_200_OK)
+async def delete_job(
+    job_id: UUID,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.RECRUITER])),
+) -> dict:
+    async with get_connection() as conn, conn.cursor() as cur:
+        await cur.execute(
+            "SELECT id, title FROM jobs WHERE id = %s AND tenant_id = %s",
+            (job_id, current_user.tenant_id),
+        )
+        existing = await cur.fetchone()
+        if not existing:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+        # 1. Delete reviews associated with screening_runs of this job
+        await cur.execute(
+            """
+            DELETE FROM reviews
+            WHERE run_id IN (SELECT id FROM screening_runs WHERE job_id = %s)
+            """,
+            (job_id,),
+        )
+
+        # 2. Delete screening_runs for this job (child scores/evidence cascade)
+        await cur.execute("DELETE FROM screening_runs WHERE job_id = %s", (job_id,))
+
+        # 3. Delete the job (documents & requirement_sets cascade)
+        await cur.execute(
+            "DELETE FROM jobs WHERE id = %s AND tenant_id = %s",
+            (job_id, current_user.tenant_id),
+        )
+
+        await cur.execute(
+            """
+            INSERT INTO audit_logs (tenant_id, actor_id, action, target_type, target_id, metadata)
+            VALUES (%s, %s, 'JOB_DELETE', 'job', %s, %s)
+            """,
+            (
+                current_user.tenant_id,
+                current_user.id,
+                str(job_id),
+                f'{{"title": "{existing["title"]}"}}',
+            ),
+        )
+
+        await conn.commit()
+        return {"message": "Job deleted successfully", "id": str(job_id), "title": existing["title"]}
