@@ -6,8 +6,10 @@ import asyncio
 import signal
 from uuid import UUID
 
+from src.domain.screening_service import execute_screening_run
 from src.infrastructure.database import close_db_pool, get_connection
 from src.infrastructure.logging import logger
+from src.worker.embedding import get_embedding_model
 from src.worker.processor import process_document
 
 _running = True
@@ -53,6 +55,9 @@ async def worker_loop():
                         if q_type == "ingest_cv":
                             doc_id = UUID(payload["document_id"])
                             await process_document(doc_id)
+                        elif q_type == "screening_run":
+                            run_id = UUID(payload["run_id"])
+                            await execute_screening_run(run_id)
 
                         await cur.execute(
                             "UPDATE jobs_queue SET status = 'DONE' WHERE id = %s",
@@ -97,6 +102,12 @@ async def worker_loop():
 def main():
     signal.signal(signal.SIGINT, handle_stop)
     signal.signal(signal.SIGTERM, handle_stop)
+    # Preload embedding model on startup
+    try:
+        logger.info("Preloading embedding model on worker startup...")
+        get_embedding_model()
+    except Exception as e:
+        logger.warning(f"Could not preload embedding model: {e}")
     asyncio.run(worker_loop())
 
 
