@@ -2,14 +2,26 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, Security, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from src.infrastructure.config import settings
 from src.infrastructure.database import get_connection
 
 router = APIRouter(tags=["Metrics"])
+metrics_security = HTTPBearer(auto_error=False)
 
 
-@router.get("/metrics", response_class=Response)
+def verify_metrics_token(credentials: HTTPAuthorizationCredentials | None = Security(metrics_security)) -> None:
+    if not credentials or credentials.credentials != settings.METRICS_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized metrics access",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+@router.get("/metrics", response_class=Response, dependencies=[Depends(verify_metrics_token)])
 async def get_prometheus_metrics():
     """Returns real Prometheus-formatted operational and business metrics."""
     async with get_connection() as conn:
