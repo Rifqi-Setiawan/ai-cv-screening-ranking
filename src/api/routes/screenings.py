@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -29,7 +30,7 @@ router = APIRouter(prefix="/api/v1/jobs/{job_id}/screenings", tags=["Screenings"
 
 
 class ScreeningRunCreate(BaseModel):
-    as_of: str = Field(default="2026-10-01", description="As-of date for evaluation")
+    as_of: str | None = Field(default=None, description="As-of date for evaluation")
     use_verifier: bool = Field(default=False, description="Enable LLM verification for ambiguous criteria")
 
 
@@ -40,6 +41,7 @@ async def trigger_screening_run(
     current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.RECRUITER, UserRole.HIRING_MANAGER])),
 ) -> dict[str, Any]:
     """Triggers an immutable screening run over all ready CVs for the job."""
+    effective_as_of = payload.as_of or date.today().isoformat()
     async with get_connection() as conn:
         cur = conn.cursor()
         await get_job_for_tenant(cur, job_id, current_user.tenant_id)
@@ -98,9 +100,9 @@ async def trigger_screening_run(
                 current_user.tenant_id,
                 job_id,
                 req_set["id"],
-                payload.as_of,
+                effective_as_of,
                 json.dumps(versions_info),
-                json.dumps({"use_verifier": payload.use_verifier, "as_of": payload.as_of}),
+                json.dumps({"use_verifier": payload.use_verifier, "as_of": effective_as_of}),
             ),
         )
 
@@ -155,7 +157,7 @@ async def trigger_screening_run(
                 rid = r["requirement_id"]
                 kind = r["kind"]
                 if kind == "EXPERIENCE_DURATION":
-                    st, conf, m, evs, flgs = eval_experience_duration(matching_prof, r, as_of=payload.as_of)
+                    st, conf, m, evs, flgs = eval_experience_duration(matching_prof, r, as_of=effective_as_of)
                     metrics_map.update(m)
                 elif kind == "SKILL":
                     st, conf, m, evs, flgs = eval_skill(matching_prof, r)

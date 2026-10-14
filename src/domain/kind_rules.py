@@ -383,7 +383,9 @@ def classify_role_family(title: str, text: str = "") -> str:
     return "other"
 
 
-def parse_ym(val: str, as_of: str = "2026-10-01") -> tuple[int, int] | None:
+def parse_ym(val: str, as_of: str | None = None) -> tuple[int, int] | None:
+    if not as_of:
+        as_of = date.today().isoformat()
     if not val:
         return None
     val_clean = val.strip().lower()
@@ -419,9 +421,11 @@ def merge_intervals(intervals: list[tuple[int, int]]) -> list[tuple[int, int]]:
 def eval_experience_duration(
     profile: dict[str, Any],
     req: dict[str, Any],
-    as_of: str = "2026-10-01",
+    as_of: str | None = None,
 ) -> tuple[str, float, dict[str, Any], list[dict[str, Any]], list[str]]:
     """Evaluates EXPERIENCE_DURATION requirements (e.g. R1: min 3 years)."""
+    if not as_of:
+        as_of = date.today().isoformat()
     params = req.get("params", {})
     accepted_rfs = [rf.lower() for rf in params.get("accepted_role_families", [])]
     desc_text = (req.get("description", "") + " " + req.get("source_text", "")).lower()
@@ -462,10 +466,7 @@ def eval_experience_duration(
     min_months = params.get("min_months")
     if min_months is None:
         m_dur = re.search(r"(\d+)\s*(?:-\s*(\d+))?\s*(?:tahun|year)", desc_text)
-        if m_dur:
-            min_months = int(m_dur.group(1)) * 12
-        else:
-            min_months = 36
+        min_months = int(m_dur.group(1)) * 12 if m_dur else 36
 
     as_of_y, as_of_m = parse_ym("present", as_of)  # type: ignore[misc]
     as_of_total_m = as_of_y * 12 + as_of_m
@@ -482,8 +483,10 @@ def eval_experience_duration(
         if rf not in accepted_rfs:
             continue
 
-        s_val = exp.get("start", {}).get("value")
-        e_val = exp.get("end", {}).get("value")
+        start_obj = exp.get("start")
+        end_obj = exp.get("end")
+        s_val = start_obj.get("value") if isinstance(start_obj, dict) else start_obj
+        e_val = end_obj.get("value") if isinstance(end_obj, dict) else end_obj
 
         s_ym = parse_ym(s_val, as_of)
         e_ym = parse_ym(e_val, as_of)
