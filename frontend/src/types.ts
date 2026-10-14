@@ -28,6 +28,8 @@ export interface CandidateScore {
   decision?: 'SHORTLIST' | 'HOLD' | 'TIDAK_LANJUT' | 'NONE'
   decision_notes?: string
   quality_status?: string
+  eligibility_status?: 'ELIGIBLE' | 'NOT_ELIGIBLE' | 'UNKNOWN'
+  eligibility_reasons?: string[]
 }
 
 export interface CandidateDetail extends CandidateScore {

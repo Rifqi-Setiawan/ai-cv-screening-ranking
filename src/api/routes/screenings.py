@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from src.api.dependencies import get_current_user, get_job_for_tenant, require_role
+from src.domain.eligibility import evaluate_candidate_eligibility
 from src.domain.explainer import generate_explanation
 from src.domain.kind_rules import (
     eval_achievement,
@@ -80,6 +81,17 @@ async def trigger_screening_run(
             "category_weights": req_set["category_weights"],
             "requirements": [dict(r) for r in requirements],
         }
+
+        # Fetch active administrative eligibility rules
+        await cur.execute(
+            """
+            SELECT id, category, rule_type, parameters, justification, is_active
+            FROM eligibility_rules
+            WHERE job_id = %s AND tenant_id = %s AND is_active = true
+            """,
+            (job_id, current_user.tenant_id),
+        )
+        active_rules = [dict(r) for r in await cur.fetchall()]
 
         # 3. Create immutable screening run record
         run_id = uuid.uuid4()
@@ -330,6 +342,52 @@ async def trigger_screening_run(
                         ),
                     )
 
+            # Evaluate candidate administrative eligibility against active rules
+            if active_rules:
+                await cur.execute(
+                    "SELECT other_personal FROM candidate_identities WHERE candidate_id = %s AND tenant_id = %s",
+                    (cv_id_val, current_user.tenant_id),
+                )
+                id_row = await cur.fetchone()
+                raw_other_p = id_row["other_personal"] if id_row else {}
+                parsed_other_p = {}
+                if raw_other_p:
+                    try:
+                        if isinstance(raw_other_p, (bytes, memoryview)):
+                            parsed_other_p = json.loads(bytes(raw_other_p).decode("utf-8"))
+                        elif isinstance(raw_other_p, str):
+                            parsed_other_p = json.loads(raw_other_p)
+                        elif isinstance(raw_other_p, dict):
+                            parsed_other_p = raw_other_p
+                    except Exception:
+                        parsed_other_p = {}
+
+                elig_eval = evaluate_candidate_eligibility(
+                    {"other_personal": parsed_other_p},
+                    active_rules,
+                    as_of=date.fromisoformat(effective_as_of),
+                )
+                for ev in elig_eval.get("evaluations", []):
+                    await cur.execute(
+                        """
+                        INSERT INTO candidate_eligibility (
+                            run_id, candidate_id, rule_id, tenant_id, status, reason, reference_date
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (run_id, candidate_id, rule_id) DO UPDATE SET
+                            status = EXCLUDED.status, reason = EXCLUDED.reason
+                        """,
+                        (
+                            run_id,
+                            cv_id_val,
+                            uuid.UUID(ev["rule_id"]),
+                            current_user.tenant_id,
+                            ev["status"],
+                            ev["reason"],
+                            effective_as_of,
+                        ),
+                    )
+
         # Mark screening run DONE
         await cur.execute(
             "UPDATE screening_runs SET status = 'DONE', finished_at = now() WHERE id = %s",
@@ -372,7 +430,19 @@ async def get_latest_screening(
         run_id = latest_run["id"]
         await cur.execute(
             """
-            WITH req_summary AS (
+            WITH elig_summary AS (
+                SELECT candidate_id,
+                       CASE
+                           WHEN bool_or(status = 'NOT_ELIGIBLE') THEN 'NOT_ELIGIBLE'
+                           WHEN bool_or(status = 'UNKNOWN') THEN 'UNKNOWN'
+                           ELSE 'ELIGIBLE'
+                       END as eligibility_status,
+                       array_agg(reason) FILTER (WHERE reason IS NOT NULL) as eligibility_reasons
+                FROM candidate_eligibility
+                WHERE run_id = %s AND tenant_id = %s
+                GROUP BY candidate_id
+            ),
+            req_summary AS (
                 SELECT candidate_id, jsonb_object_agg(requirement_id, state) as states
                 FROM requirement_scores
                 WHERE run_id = %s AND tenant_id = %s
@@ -380,14 +450,17 @@ async def get_latest_screening(
             )
             SELECT cs.rank, cs.candidate_id as cv_id, cs.candidate_id, d.original_filename as file_name, cs.final_score, cs.raw_score,
                    cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status,
-                   COALESCE(rs.states, '{}'::jsonb) as requirement_states
+                   COALESCE(rs.states, '{}'::jsonb) as requirement_states,
+                   COALESCE(es.eligibility_status, 'ELIGIBLE') as eligibility_status,
+                   COALESCE(es.eligibility_reasons, '{}'::text[]) as eligibility_reasons
             FROM candidate_scores cs
             JOIN documents d ON cs.document_id = d.id AND d.tenant_id = cs.tenant_id
             LEFT JOIN req_summary rs ON rs.candidate_id = cs.candidate_id
+            LEFT JOIN elig_summary es ON es.candidate_id = cs.candidate_id
             WHERE cs.run_id = %s AND cs.tenant_id = %s
             ORDER BY cs.rank ASC NULLS LAST, cs.final_score DESC
             """,
-            (run_id, current_user.tenant_id, run_id, current_user.tenant_id),
+            (run_id, current_user.tenant_id, run_id, current_user.tenant_id, run_id, current_user.tenant_id),
         )
         rows = await cur.fetchall()
         return {
@@ -422,7 +495,19 @@ async def get_rankings(
 
         await cur.execute(
             """
-            WITH req_summary AS (
+            WITH elig_summary AS (
+                SELECT candidate_id,
+                       CASE
+                           WHEN bool_or(status = 'NOT_ELIGIBLE') THEN 'NOT_ELIGIBLE'
+                           WHEN bool_or(status = 'UNKNOWN') THEN 'UNKNOWN'
+                           ELSE 'ELIGIBLE'
+                       END as eligibility_status,
+                       array_agg(reason) FILTER (WHERE reason IS NOT NULL) as eligibility_reasons
+                FROM candidate_eligibility
+                WHERE run_id = %s AND tenant_id = %s
+                GROUP BY candidate_id
+            ),
+            req_summary AS (
                 SELECT candidate_id, jsonb_object_agg(requirement_id, state) as states
                 FROM requirement_scores
                 WHERE run_id = %s AND tenant_id = %s
@@ -430,14 +515,17 @@ async def get_rankings(
             )
             SELECT cs.rank, cs.candidate_id as cv_id, cs.candidate_id, d.original_filename as file_name, cs.final_score, cs.raw_score,
                    cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status,
-                   COALESCE(rs.states, '{}'::jsonb) as requirement_states
+                   COALESCE(rs.states, '{}'::jsonb) as requirement_states,
+                   COALESCE(es.eligibility_status, 'ELIGIBLE') as eligibility_status,
+                   COALESCE(es.eligibility_reasons, '{}'::text[]) as eligibility_reasons
             FROM candidate_scores cs
             JOIN documents d ON cs.document_id = d.id AND d.tenant_id = cs.tenant_id
             LEFT JOIN req_summary rs ON rs.candidate_id = cs.candidate_id
+            LEFT JOIN elig_summary es ON es.candidate_id = cs.candidate_id
             WHERE cs.run_id = %s AND cs.tenant_id = %s
             ORDER BY cs.rank ASC NULLS LAST, cs.final_score DESC
             """,
-            (run_id, current_user.tenant_id, run_id, current_user.tenant_id),
+            (run_id, current_user.tenant_id, run_id, current_user.tenant_id, run_id, current_user.tenant_id),
         )
         rows = await cur.fetchall()
         return {

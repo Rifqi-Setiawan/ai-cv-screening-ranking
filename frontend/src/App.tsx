@@ -596,6 +596,8 @@ Kualifikasi:
             metrics: {},
             flags: r.flags || [],
             quality_status: r.quality_status || 'READY',
+            eligibility_status: r.eligibility_status || 'ELIGIBLE',
+            eligibility_reasons: r.eligibility_reasons || [],
             requirement_states: r.requirement_states || {},
             evidence: {},
             explanation: {
@@ -1788,25 +1790,43 @@ Kualifikasi:
                         </div>
                       </td>
                       <td className="py-3 px-3">
-                        <span
-                          className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                            cand.recommendation === 'SHORTLIST'
-                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        <div className="flex flex-col gap-1 items-start">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                              cand.recommendation === 'SHORTLIST'
+                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                : cand.recommendation === 'REVIEW'
+                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                : cand.recommendation === 'MANUAL_CHECK'
+                                ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                                : 'bg-slate-100 text-slate-600'
+                            }`}
+                          >
+                            {cand.recommendation === 'SHORTLIST'
+                              ? 'Disarankan Shortlist'
                               : cand.recommendation === 'REVIEW'
-                              ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                              ? 'Perlu Ditinjau'
                               : cand.recommendation === 'MANUAL_CHECK'
-                              ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                              : 'bg-slate-100 text-slate-600'
-                          }`}
-                        >
-                          {cand.recommendation === 'SHORTLIST'
-                            ? 'Disarankan Shortlist'
-                            : cand.recommendation === 'REVIEW'
-                            ? 'Perlu Ditinjau'
-                            : cand.recommendation === 'MANUAL_CHECK'
-                            ? 'Perlu Cek Manual'
-                            : 'Prioritas Rendah'}
-                        </span>
+                              ? 'Perlu Cek Manual'
+                              : 'Prioritas Rendah'}
+                          </span>
+                          {cand.eligibility_status === 'NOT_ELIGIBLE' && (
+                            <span
+                              className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-800 border border-amber-200"
+                              title={cand.eligibility_reasons?.join(', ') || 'Di luar kriteria administratif'}
+                            >
+                              ⚠️ Di luar kriteria administratif
+                            </span>
+                          )}
+                          {cand.eligibility_status === 'UNKNOWN' && (
+                            <span
+                              className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200"
+                              title="Data administratif tidak tersedia di CV"
+                            >
+                              ℹ️ Data administratif tidak tersedia
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-3 px-3" onClick={(e) => e.stopPropagation()}>
                         <select

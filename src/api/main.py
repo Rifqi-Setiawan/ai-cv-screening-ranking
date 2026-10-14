@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from src.api.routes import auth, candidates, cvs, health, jobs, metrics, requirements, screenings
+from src.api.routes import auth, candidates, cvs, eligibility, health, jobs, metrics, requirements, screenings
 from src.infrastructure.config import settings
 from src.infrastructure.database import close_db_pool, get_db_pool
 from src.infrastructure.logging import logger
@@ -54,6 +54,7 @@ app.include_router(requirements.router)
 app.include_router(requirements.preview_router)
 app.include_router(screenings.router)
 app.include_router(candidates.router)
+app.include_router(eligibility.router)
 app.include_router(metrics.router)
 
 frontend_dist = Path("/srv/hermes-control/services/cv-screening/frontend/dist")
