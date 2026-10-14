@@ -661,6 +661,13 @@ Kualifikasi:
         body: JSON.stringify({ use_verifier: false }),
       })
 
+      if (res.status === 409) {
+        const errJson = await res.json().catch(() => ({}))
+        alert(errJson.detail || 'Kriteria belum disetujui. Silakan setujui kriteria lowongan terlebih dahulu.')
+        setCurrentStep('requirements')
+        return
+      }
+
       if (res.ok) {
         const data = await res.json()
         const runId = data.screening_run_id || data.run_id
