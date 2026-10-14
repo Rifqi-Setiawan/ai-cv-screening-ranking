@@ -6,384 +6,53 @@ import re
 from datetime import date
 from typing import Any
 
+from src.domain.taxonomy import get_taxonomy
 from src.domain.text_match import match_skill
 
-ROLE_FAMILY_PATTERNS = {
-    "backend": [
-        r"backend",
-        r"back-end",
-        r"api developer",
-        r"software engineer.*backend",
-        r"\brest\s+api\b",
-        r"\bfastapi\b",
-        r"\bflask\b",
-        r"\bdjango\b",
-    ],
-    "fullstack": [r"fullstack", r"full-stack", r"full stack"],
-    "frontend": [r"frontend", r"front-end", r"ui engineer"],
-    "mobile": [r"mobile", r"android", r"ios", r"flutter"],
-    "data": [r"data analyst", r"data engineer", r"data scientist", r"bi analyst"],
-    "qa": [r"qa", r"quality assurance", r"tester", r"automation engineer"],
-    "devops": [r"devops", r"sre", r"platform engineer", r"infrastructure"],
-    "hr": [r"\bhr\b", r"human capital", r"recruiter", r"talent acquisition", r"sdm"],
-    "business_analyst": [
-        r"business analyst",
-        r"analis bisnis",
-        r"system analyst",
-        r"analis sistem",
-        r"business development",
-        r"bizdev",
-        r"business operation",
-        r"channel developer",
-        r"strategic planning",
-        r"perencana strategi",
-        r"konsultan bisnis",
-        r"business consultant",
-        r"operation.*analyst",
-        r"process analyst",
-    ],
-    "financial_analyst": [
-        r"financial analyst",
-        r"finance analyst",
-        r"analis keuangan",
-        r"investment analyst",
-        r"analis investasi",
-        r"corporate finance",
-        r"treasury",
-        r"finance\b",
-        r"keuangan",
-        r"accounting",
-        r"akuntansi",
-        r"auditor",
-    ],
-    "consultant": [
-        r"consultant",
-        r"konsultan",
-        r"management consultant",
-        r"konsultan manajemen",
-        r"advisory",
-        r"surveyor",
-        r"peneliti",
-        r"researcher",
-    ],
-    "civil_engineering": [
-        r"sipil",
-        r"civil",
-        r"konstruksi",
-        r"construction",
-        r"struktur",
-        r"pelaksana",
-        r"site manager",
-        r"site engineer",
-        r"project engineer",
-        r"pengawas lapangan",
-        r"pengawas proyek",
-        r"estimator",
-        r"drafter",
-        r"survei",
-        r"surveyor",
-        r"tunnel",
-        r"drainase",
-        r"kontraktor",
-        r"konsultan",
-        r"quality control",
-        r"qc.*piping",
-        r"qc.*structure",
-    ],
-    "engineering": [
-        r"engineer",
-        r"teknik",
-        r"rekayasa",
-        r"drafter",
-        r"pelaksana",
-        r"pengawas",
-        r"mandor",
-    ],
-}
 
-CONCEPT_ALIASES = {
-    "skill:python": ["python", "fastapi", "django", "flask"],
-    "skill:postgresql": ["postgresql", "postgres", "psql", "postgre sql", "postgre"],
-    "skill:mysql": ["mysql", "mariadb"],
-    "skill:docker": ["docker", "dockerized", "containerized", "container", "docker compose"],
-    "skill:kubernetes": ["kubernetes", "k8s", "gke", "eks", "aks"],
-    "skill:redis": ["redis"],
-    "skill:go": ["golang", "go ", "go/"],
-    "skill:rest_api": ["rest api", "restful", "api"],
-    "skill:microservices": ["microservices", "microservice", "layanan mikro"],
-    "skill:aws": ["aws", "amazon web services", "ec2", "ecs", "s3", "sqs", "lambda"],
-    "skill:gcp": ["google cloud", "gcp", "gke", "cloud run", "bigquery"],
-    "skill:azure": ["azure", "microsoft azure"],
-    "skill:recruitment": ["rekrutmen", "recruitment", "sourcing", "screening", "talent acquisition"],
-    "skill:payroll": ["payroll", "penggajian", "upah"],
-    "skill:bpjs": ["bpjs", "bpjs kesehatan", "bpjs ketenagakerjaan"],
-    "skill:labor_law_id": ["uu ketenagakerjaan", "pkwt", "pkwtt", "hubungan industrial"],
-    "role_family:civil_engineering": [
-        "sipil",
-        "civil",
-        "konstruksi",
-        "pelaksana",
-        "site manager",
-        "site engineer",
-        "pengawas lapangan",
-    ],
-    "experience:civil_construction": [
-        "sipil",
-        "konstruksi",
-        "pelaksana",
-        "site engineer",
-        "proyek",
-        "pengawas",
-        "kontraktor",
-        "smelter",
-        "bangunan",
-    ],
-    "skill:autocad": [
-        "autocad",
-        "cad",
-        "computer aided design",
-        "drafting",
-        "shop drawing",
-        "gambar teknik",
-        "gambar kerja",
-    ],
-    "skill:technical_drawing": ["gambar teknik", "shop drawing", "gambar kerja", "autocad", "cad", "drafting"],
-    "skill:shop_drawing": ["shop drawing", "gambar kerja", "gambar teknik", "autocad"],
-    "skill:sketchup": ["sketchup", "3d modelling", "sketch up"],
-    "skill:sap2000": ["sap2000", "sap 2000", "etabs", "analisis struktur"],
-    "skill:etabs": ["etabs", "sap2000"],
-    "skill:rab_calculation": [
-        "rab",
-        "rencana anggaran biaya",
-        "budgeting",
-        "estimasi biaya",
-        "estimator",
-        "bill of quantity",
-        "boq",
-    ],
-    "skill:project_scheduling": [
-        "ms project",
-        "microsoft project",
-        "penjadwalan",
-        "scheduling",
-        "kurva s",
-        "manajemen proyek",
-    ],
-    "skill:microsoft_project": ["microsoft project", "ms project", "project"],
-    "skill:earthwork": ["pekerjaan tanah", "tanah dasar", "galian", "timbunan", "cut and fill", "earthwork"],
-    "skill:foundation": ["pondasi", "foundation", "tiang pancang", "bored pile", "base a"],
-    "skill:concrete_work": [
-        "beton",
-        "concrete",
-        "pembesian",
-        "bekisting",
-        "lean concrete",
-        "rigid pavement",
-        "readymix",
-    ],
-    "skill:drainage": ["drainase", "drainage", "saluran air", "gorong", "plumbing"],
-    "skill:drainase": ["drainase", "drainage", "saluran air", "gorong", "plumbing"],
-    "skill:finishing_work": ["finishing", "pekerjaan finishing", "arsitektur"],
-    "skill:k3_konstruksi": [
-        "k3",
-        "hse",
-        "keselamatan kerja",
-        "keselamatan dan kesehatan kerja",
-        "k3 konstruksi",
-        "ahli k3",
-        "bimtek k3",
-    ],
-    "skill:construction_safety": ["k3", "hse", "keselamatan kerja", "safety"],
-    "skill:site_supervision": ["pengawas", "pengawasan", "site supervision", "pelaksana", "mandor", "site manager"],
-    "skill:subcontractor_management": ["subkontraktor", "mandor", "tenaga kerja", "pekerja", "vendor"],
-    "skill:progress_reporting": [
-        "laporan progres",
-        "laporan harian",
-        "laporan mingguan",
-        "laporan bulanan",
-        "opname",
-        "progress report",
-    ],
-    "skill:quality_control": ["quality control", "pengawasan mutu", "inspeksi", "qc", "qa/qc"],
-    "skill:sports_facility_construction": ["lapangan", "olahraga", "sports", "stadion"],
-    "skill:swimming_pool_construction": ["kolam renang", "pool", "waterwork"],
-    "cert:ska": ["ska", "sertifikat keahlian", "ahli muda", "ahli madya", "ahli utama", "lpjk"],
-    "cert:skt": ["skt", "sertifikat keterampilan"],
-    "cert:k3_konstruksi": ["k3", "ahli k3", "k3 konstruksi", "bimtek k3", "ahli keselamatan", "hse"],
-    "education:civil_engineering": [
-        "teknik sipil",
-        "civil engineering",
-        "teknik bangunan",
-        "sarjana terapan teknik sipil",
-        "sipil",
-    ],
-    "role_family:business_analyst": [
-        "business analyst",
-        "analis bisnis",
-        "business development",
-        "consultant",
-        "analyst",
-        "analis",
-    ],
-    "role_family:management_consultant": ["consultant", "konsultan", "advisory", "strategic", "business consultant"],
-    "role_family:financial_analyst": [
-        "financial analyst",
-        "finance analyst",
-        "analis keuangan",
-        "investment analyst",
-        "analis investasi",
-        "finance",
-        "keuangan",
-    ],
-    "skill:microsoft_excel": [
-        "excel",
-        "ms excel",
-        "microsoft excel",
-        "spreadsheet",
-        "ms. office",
-        "microsoft office",
-        "google sheets",
-        "pivot table",
-        "power query",
-        "vlookup",
-    ],
-    "skill:financial_modeling": [
-        "financial model",
-        "financial modeling",
-        "pemodelan keuangan",
-        "model keuangan",
-        "pemodelan data dan keuangan",
-        "financial forecast",
-        "proyeksi keuangan",
-        "master budget",
-        "budgeting",
-        "financial projection",
-    ],
-    "skill:data_modeling": ["data modeling", "pemodelan data", "model data", "pemodelan data dan keuangan"],
-    "skill:data_analysis": [
-        "data analysis",
-        "analisis data",
-        "analisa data",
-        "data analyst",
-        "analythical thinking",
-        "analytical thinking",
-        "spss",
-        "r studio",
-        "rstudio",
-        "stata",
-        "warppls",
-        "olah data",
-        "regresi",
-        "kuantitatif",
-    ],
-    "skill:report_writing": [
-        "penulisan laporan",
-        "report writing",
-        "laporan bisnis",
-        "rekomendasi bisnis",
-        "laporan keuangan",
-        "menyusun laporan",
-        "membuat laporan",
-        "laporan",
-        "reporting",
-    ],
-    "skill:presentation": [
-        "presentasi",
-        "presentation",
-        "public speaking",
-        "pitch deck",
-        "slide",
-        "powerpoint",
-        "komunikasi",
-        "presentations skill",
-    ],
-    "skill:business_analysis": [
-        "business analysis",
-        "analisis bisnis",
-        "analisa bisnis",
-        "business analyst",
-        "analis bisnis",
-        "business process",
-        "proses bisnis",
-        "gap analysis",
-        "analisis operasional",
-    ],
-    "skill:cash_flow_projection": ["cash flow", "arus kas", "proyeksi arus kas", "laporan arus kas", "cash management"],
-    "skill:npv": ["npv", "net present value"],
-    "skill:irr": ["irr", "internal rate of return"],
-    "skill:sensitivity_analysis": ["analisis sensitivitas", "sensitivity analysis"],
-    "skill:investment_analysis": [
-        "analisis investasi",
-        "investment analysis",
-        "analisis kelayakan investasi",
-        "investasi",
-        "investment",
-        "kelayakan investasi",
-    ],
-    "skill:market_research": ["market research", "riset pasar", "penelitian pasar", "analisis pasar", "survei pasar"],
-    "skill:industry_analysis": [
-        "analisis industri",
-        "industry analysis",
-        "competitive analysis",
-        "analisis kompetitor",
-        "analisis persaingan",
-    ],
-    "skill:feasibility_study": [
-        "feasibility study",
-        "studi kelayakan",
-        "kelayakan bisnis",
-        "kelayakan proyek",
-        "analisis kelayakan",
-    ],
-    "skill:strategic_planning": [
-        "strategic planning",
-        "perencanaan strategis",
-        "perencanaan strategi",
-        "business plan",
-        "rencana bisnis",
-        "swot",
-        "pestel",
-        "business model canvas",
-        "strategi bisnis",
-    ],
-    "skill:business_valuation": ["valuasi", "valuation", "business valuation", "valuasi bisnis", "penilaian bisnis"],
-    "skill:risk_management": ["manajemen risiko", "risk management", "analisis risiko", "mitigasi risiko"],
-    "skill:power_bi": ["power bi", "powerbi", "power-bi"],
-    "skill:tableau": ["tableau"],
-    "skill:data_visualization": [
-        "data visualization",
-        "visualisasi data",
-        "dashboard",
-        "tableau",
-        "power bi",
-        "powerbi",
-        "looker",
-        "looker studio",
-        "google data studio",
-        "vosviewer",
-    ],
-    "skill:sql": ["sql", "mysql", "postgresql", "ansi sql", "relational database"],
-    "skill:sqlite": ["sqlite", "sqlite3"],
-    "skill:java": ["java", "j2ee", "spring", "spring boot"],
-    "skill:javascript": ["javascript", "js", "ecmascript", "node", "nodejs"],
-}
+def get_concept_aliases() -> dict[str, list[str]]:
+    tax = get_taxonomy()
+    return {cid: list(sk.aliases) for cid, sk in tax.skills.items()}
+
+
+class _ConceptAliasesProxy(dict):
+    def get(self, key, default=None):
+        return get_concept_aliases().get(key, default)
+
+    def __getitem__(self, key):
+        return get_concept_aliases()[key]
+
+    def __contains__(self, key):
+        return key in get_concept_aliases()
+
+
+CONCEPT_ALIASES = _ConceptAliasesProxy()
 
 
 def classify_role_family(title: str, text: str = "") -> str:
-    title_lower = title.lower()
-    for rf, patterns in ROLE_FAMILY_PATTERNS.items():
+    if not title:
+        return "other"
+    tax = get_taxonomy()
+    t_clean = title.strip().lower()
+
+    for rf, patterns in tax.compiled_role_titles.items():
+        if rf in ("ambiguous", "other"):
+            continue
         for pat in patterns:
-            if re.search(pat, title_lower):
+            if pat.search(t_clean):
                 return rf
+
     comb = f"{title} {text}".lower()
-    for rf, patterns in ROLE_FAMILY_PATTERNS.items():
+    for rf, patterns in tax.compiled_role_titles.items():
+        if rf in ("ambiguous", "other"):
+            continue
         for pat in patterns:
-            if re.search(pat, comb):
+            if pat.search(comb):
                 return rf
     return "other"
 
 
-def parse_ym(val: str | None, as_of: str | None = None) -> tuple[int, int] | None:
+def parse_ym(val: str | None, as_of: str | None = None, is_end: bool = False) -> tuple[int, int] | None:
     if not as_of:
         as_of = date.today().isoformat()
     if not val:
@@ -399,7 +68,8 @@ def parse_ym(val: str | None, as_of: str | None = None) -> tuple[int, int] | Non
 
     m_y = re.match(r"^(\d{4})$", val_clean)
     if m_y:
-        return int(m_y.group(1)), 7
+        y = int(m_y.group(1))
+        return y, (6 if is_end else 7)
 
     return None
 
@@ -432,35 +102,12 @@ def eval_experience_duration(
 
     if not accepted_rfs:
         concepts = [c.lower() for c in req.get("concepts", [])]
-        if any("civil" in c for c in concepts) or any(
-            term in desc_text for term in ["sipil", "civil", "konstruksi", "lapangan", "proyek sipil", "bangunan"]
-        ):
-            accepted_rfs = ["civil_engineering", "engineering"]
-        elif any("hr" in c for c in concepts) or any(
-            term in desc_text for term in ["hr", "human capital", "recruiter", "talent", "payroll"]
-        ):
-            accepted_rfs = ["hr"]
-        elif any("business" in c or "consult" in c or "finance" in c or "financial" in c for c in concepts) or any(
-            term in desc_text
-            for term in [
-                "business analyst",
-                "analis bisnis",
-                "konsultan",
-                "consultant",
-                "analis keuangan",
-                "financial analyst",
-                "keuangan",
-                "investasi",
-            ]
-        ):
-            accepted_rfs = ["business_analyst", "financial_analyst", "consultant", "data"]
-        elif any("data" in c for c in concepts) or any(term in desc_text for term in ["data", "analyst", "analytics"]):
-            accepted_rfs = ["data", "business_analyst"]
-        elif any("qa" in c for c in concepts) or any(
-            term in desc_text for term in ["qa", "tester", "quality assurance"]
-        ):
-            accepted_rfs = ["qa"]
-        else:
+        tax = get_taxonomy()
+        for rf_name, rf_entry in tax.role_families.items():
+            if any(term in desc_text for term in rf_entry.domain_terms) or any(rf_name in c for c in concepts):
+                accepted_rfs.append(rf_name)
+                accepted_rfs.extend(rf_entry.related)
+        if not accepted_rfs:
             accepted_rfs = ["backend", "fullstack"]
 
     min_months = params.get("min_months")
@@ -488,8 +135,13 @@ def eval_experience_duration(
         s_val = start_obj.get("value") if isinstance(start_obj, dict) else start_obj
         e_val = end_obj.get("value") if isinstance(end_obj, dict) else end_obj
 
-        s_ym = parse_ym(s_val, as_of)
-        e_ym = parse_ym(e_val, as_of)
+        s_val_str = str(s_val or "").strip()
+        e_val_str = str(e_val or "").strip()
+        if re.match(r"^\d{4}$", s_val_str) or re.match(r"^\d{4}$", e_val_str):
+            flags.append("DATE_YEAR_ONLY_INFERRED")
+
+        s_ym = parse_ym(s_val, as_of, is_end=False)
+        e_ym = parse_ym(e_val, as_of, is_end=True)
 
         if not s_ym or not e_ym:
             continue
@@ -550,33 +202,13 @@ def eval_skill(
         target_keywords.extend(CONCEPT_ALIASES.get(c, [base, base.replace("_", " "), base.replace("_", "-")]))
 
     if not target_keywords:
-        desc = req.get("description", "") + " " + req.get("source_text", "")
+        desc = (req.get("description") or "") + " " + (req.get("source_text") or "")
         potential = re.findall(r"[A-Za-z0-9+#]+", desc)
+        tax = get_taxonomy()
+        stop_set = set(tax.stopwords) | {"memahami", "mampu", "menguasai", "melakukan", "minimal", "sebagai"}
         for term in potential:
             t_lower = term.lower()
-            if len(t_lower) >= 3 and t_lower not in {
-                "dan",
-                "yang",
-                "atau",
-                "dengan",
-                "untuk",
-                "dalam",
-                "serta",
-                "ke",
-                "di",
-                "dari",
-                "memahami",
-                "mampu",
-                "menguasai",
-                "melakukan",
-                "minimal",
-                "sebagai",
-                "merupakan",
-                "nilai",
-                "tambah",
-                "proyek",
-                "pekerjaan",
-            }:
+            if len(t_lower) >= 3 and t_lower not in stop_set:
                 target_keywords.extend(CONCEPT_ALIASES.get(f"skill:{t_lower}", [t_lower]))
 
     evidence = []
@@ -598,9 +230,10 @@ def eval_skill(
                 return "PARTIAL", 0.85, {}, evidence, []
 
     for sk in profile.get("skills", []):
+        sk_name = sk.get("name", "") if isinstance(sk, dict) else str(sk)
         for kw in target_keywords:
-            if match_skill(sk, kw):
-                evidence.append({"quote": f"Skills: {sk}", "context": "skills_list", "verified": True})
+            if match_skill(sk_name, kw):
+                evidence.append({"quote": f"Skills: {sk_name}", "context": "skills_list", "verified": True})
                 return "PARTIAL", 0.85, {}, evidence, []
 
     # Fallback context: In summary or headline
@@ -617,7 +250,7 @@ def eval_responsibility(
     profile: dict[str, Any],
     req: dict[str, Any],
 ) -> tuple[str, float, dict[str, Any], list[dict[str, Any]], list[str]]:
-    """Evaluates RESPONSIBILITY (e.g. building REST API, microservices, or payroll admin)."""
+    """Evaluates RESPONSIBILITY (e.g. building REST API, microservices, or domain admin)."""
     concepts = [c.lower() for c in req.get("concepts", [])]
     target_kws: list[str] = []
     for c in concepts:
@@ -686,7 +319,7 @@ def eval_responsibility(
                 or "automation" in b_lower
             )
 
-            # Concept matching for domain responsibilities (like payroll/bpjs in JD-02)
+            # Concept matching for domain responsibilities (like domain administration in JD-02)
             if target_kws and not any("api" in kw for kw in target_kws):
                 for kw in target_kws:
                     if re.search(rf"\b{re.escape(kw)}", b_lower):
@@ -773,99 +406,25 @@ def eval_education(
         else:
             min_level = "S1"
 
+    tax = get_taxonomy()
     strong_fields = [f.lower() for f in params.get("strong_fields", [])]
-    if not strong_fields:
-        if any("civil" in c for c in concepts) or any(term in desc_text for term in ["sipil", "civil", "bangunan"]):
-            strong_fields = [
-                "teknik sipil",
-                "civil engineering",
-                "teknik bangunan",
-                "sarjana terapan teknik sipil",
-                "sipil",
-            ]
-        elif any(term in desc_text for term in ["informatika", "komputer", "software", "cs"]):
-            strong_fields = [
-                "teknik informatika",
-                "ilmu komputer",
-                "sistem informasi",
-                "computer science",
-                "informatika",
-                "computer",
-            ]
-        elif any(term in desc_text for term in ["hr", "psikologi", "sdm"]):
-            strong_fields = ["psikologi", "manajemen", "hukum"]
-        elif any(
-            term in desc_text
-            for term in ["manajemen", "akuntansi", "ekonomi", "bisnis", "industri", "keuangan", "statistika"]
-        ) or any(
-            c
-            in [
-                "field:management",
-                "field:accounting",
-                "field:economics",
-                "field:industrial_engineering",
-                "field:business",
-            ]
-            for c in concepts
-        ):
-            strong_fields = [
-                "manajemen",
-                "management",
-                "akuntansi",
-                "accounting",
-                "ekonomi",
-                "economics",
-                "teknik industri",
-                "industrial engineering",
-                "bisnis",
-                "business",
-                "administrasi bisnis",
-                "business administration",
-                "keuangan",
-                "finance",
-                "statistika",
-                "statistics",
-                "agribisnis",
-                "agribusiness",
-                "matematika",
-                "mathematics",
-                "hukum ekonomi syariah",
-                "sharia accounting",
-                "digital business",
-                "s.e",
-                "s.stat",
-                "mba",
-            ]
-            partial_fields = [
-                "hukum",
-                "hubungan internasional",
-                "international relations",
-                "administrasi",
-                "sains",
-                "teknik",
-                "sosial",
-            ]
-        else:
-            strong_fields = [
-                "teknik informatika",
-                "ilmu komputer",
-                "sistem informasi",
-                "computer science",
-                "informatika",
-                "computer",
-                "psikologi",
-                "manajemen",
-                "teknik sipil",
-                "civil engineering",
-            ]
+    partial_fields = [f.lower() for f in params.get("partial_fields", [])]
 
-    partial_fields = [
-        f.lower()
-        for f in params.get(
-            "partial_fields",
-            ["teknik komputer", "matematika", "rekayasa", "arsitektur", "teknik pengelasan", "welding"],
-        )
-    ]
+    if not strong_fields:
+        for field_id, field_skill in tax.skills.items():
+            if field_id.startswith("field:"):
+                f_name = field_id.replace("field:", "")
+                if any(f_name in c for c in concepts) or any(term in desc_text for term in field_skill.aliases):
+                    strong_fields.extend([a.lower() for a in field_skill.aliases])
+                    partial_fields.extend([r.lower() for r in field_skill.related])
+
+    if not strong_fields:
+        for field_id, field_skill in tax.skills.items():
+            if field_id.startswith("field:"):
+                strong_fields.extend([a.lower() for a in field_skill.aliases])
+
+    if not partial_fields:
+        partial_fields = ["teknik komputer", "matematika", "rekayasa", "arsitektur", "teknik pengelasan", "welding"]
 
     level_rank = {"SMA": 1, "SMK": 1, "D3": 2, "D4": 3, "S1": 3, "S2": 4, "S3": 5}
     min_r = level_rank.get(min_level, 3)
@@ -921,53 +480,26 @@ def eval_certification(
     profile: dict[str, Any],
     req: dict[str, Any],
 ) -> tuple[str, float, dict[str, Any], list[dict[str, Any]], list[str]]:
-    """Evaluates CERTIFICATION requirements."""
+    """Evaluates CERTIFICATION requirements using taxonomy mappings."""
     concepts = [c.lower() for c in req.get("concepts", [])]
     desc_text = (req.get("description", "") + " " + req.get("source_text", "")).lower()
     cert_certs = list(profile.get("certifications", []))
-    # Also check candidate skills list which may contain certification names
     for sk in profile.get("skills", []):
+        sk_val = sk.get("name", "") if isinstance(sk, dict) else str(sk)
         if any(
-            term in sk.lower()
+            term in sk_val.lower()
             for term in ["k3", "sertifikat", "certificate", "competence", "kompetensi", "ahli", "bnsp", "inspektur"]
         ):
-            cert_certs.append(sk)
+            cert_certs.append(sk_val)
 
     evidence = []
+    tax = get_taxonomy()
     for c in cert_certs:
         c_lower = c.lower()
-        if (
-            "cert:cloud" in concepts or "cert:aws" in concepts or "cert:gcp" in concepts or "cloud" in desc_text
-        ) and any(term in c_lower for term in ["aws certified", "google cloud", "azure", "cloud developer"]):
-            evidence.append({"quote": c, "context": "certification", "verified": True})
-            return "STRONG", 0.95, {}, evidence, []
-        if ("cert:hr" in concepts or "hr" in desc_text or "bnsp" in desc_text) and any(
-            term in c_lower for term in ["human capital", "bnsp", "chrp", "hr"]
-        ):
-            evidence.append({"quote": c, "context": "certification", "verified": True})
-            return "STRONG", 0.95, {}, evidence, []
-        if (
-            "cert:ska" in concepts
-            or "cert:skt" in concepts
-            or "cert:k3" in concepts
-            or any(term in desc_text for term in ["ska", "skt", "k3", "konstruksi", "inspektur", "keselamatan"])
-        ) and any(
-            term in c_lower
-            for term in [
-                "ska",
-                "skt",
-                "k3",
-                "keselamatan",
-                "hse",
-                "inspektur",
-                "ahli k3",
-                "kompetensi",
-                "bnsp",
-                "bimtek",
-            ]
-        ):
-            evidence.append({"quote": c, "context": "certification", "verified": True})
-            return "STRONG", 0.95, {}, evidence, []
+        for cert_concept, terms in tax.certifications.items():
+            if (cert_concept in concepts or any(t in desc_text for t in terms)) and any(t in c_lower for t in terms):
+                evidence.append({"quote": c, "context": "certification", "verified": True})
+                return "STRONG", 0.95, {}, evidence, []
 
     return "NOT_DEMONSTRATED", 0.95, {}, [], []
 
@@ -1028,19 +560,8 @@ def eval_leadership(
     profile: dict[str, Any],
     req: dict[str, Any],
 ) -> tuple[str, float, dict[str, Any], list[dict[str, Any]], list[str]]:
-    """Evaluates LEADERSHIP requirements (memimpin tim teknis != tim sales)."""
-    lead_verbs = [
-        r"memimpin\s+.*tim",
-        r"led\s+.*team",
-        r"lead\s+.*team",
-        r"mentoring",
-        r"membimbing",
-        r"\bketua\b",
-        r"\bhead\b",
-        r"\bkoordinator\b",
-    ]
-    lead_titles = [r"\blead\b", r"\bhead\b", r"\bmanager\b", r"\bsupervisor\b"]
-
+    """Evaluates LEADERSHIP requirements using taxonomy mappings."""
+    tax = get_taxonomy()
     evidence = []
     has_tech_lead = False
     has_qa_or_org_lead = False
@@ -1051,8 +572,8 @@ def eval_leadership(
         rf = classify_role_family(title)
         bullets_text = " ".join(b.get("text", "") for b in exp.get("bullets", []))
 
-        is_lead = any(re.search(v, bullets_text, re.IGNORECASE) for v in lead_verbs) or any(
-            re.search(t, title, re.IGNORECASE) for t in lead_titles
+        is_lead = any(v.search(bullets_text) for v in tax.compiled_leadership_verbs) or any(
+            t.search(title) for t in tax.compiled_leadership_titles
         )
 
         if is_lead:
@@ -1067,13 +588,13 @@ def eval_leadership(
 
     for org in profile.get("organizations", []):
         txt = org.get("text", "") or org.get("title", "")
-        if any(re.search(v, txt, re.IGNORECASE) for v in lead_verbs):
+        if any(v.search(txt) for v in tax.compiled_leadership_verbs):
             has_qa_or_org_lead = True
             evidence.append({"quote": txt[:100], "context": "organization", "verified": True})
 
     for prj in profile.get("projects", []):
         txt = prj.get("text", "")
-        if any(re.search(v, txt, re.IGNORECASE) for v in lead_verbs):
+        if any(v.search(txt) for v in tax.compiled_leadership_verbs):
             has_qa_or_org_lead = True
             evidence.append({"quote": txt[:100], "context": "project", "verified": True})
 
