@@ -931,32 +931,32 @@ Padahal `docs/spec/reference/*.yaml` (role_families, skills_seed, prohibited_cri
 
 | ID | Status (DONE/PARTIAL/BLOCKED) | Commit | Catatan / penyimpangan dari spec |
 |---|---|---|---|
-| FX-01 | | | |
-| FX-02 | | | |
-| FX-03 | | | |
-| FX-04 | | | |
-| FX-05 | | | |
-| FX-06 | | | |
-| FX-07 | | | |
-| FX-10 | | | |
-| FX-11 | | | |
-| FX-12 | | | |
-| FX-13 | | | |
-| FX-14 | | | |
-| FX-15 | | | |
-| FX-16 | | | |
-| FX-20 | | | |
-| FX-21 | | | |
-| FX-22 | | | |
-| FX-23 | | | |
-| FX-24 | | | |
-| FX-25 | | | |
-| FX-26 | | | |
-| FX-30 | | | |
-| FX-31 | | | |
-| FX-32 | | | |
-| FX-33 | | | |
-| FX-40 | | | |
+| FX-01 | ✅ DONE | `414db59` | Kredensial DB & JWT dirotasi; fail-fast validator Pydantic; clean test data; test-db target |
+| FX-02 | ✅ DONE | `fix(FX-02)` | Filter multi-tenant konsisten (tenant_id = %s) di semua rute & reveal-identity |
+| FX-03 | ✅ DONE | `fix(FX-03)` | Requirement sets wajib APPROVED sebelum screening run (HTTP 409 Conflict) |
+| FX-04 | ✅ DONE | `fix(FX-04)` | Whitelist CORS eksplisit via settings.CORS_ALLOWED_ORIGINS |
+| FX-05 | ✅ DONE | `317f7f2` | Endpoint compile-preview & /metrics dilindungi auth & METRICS_TOKEN kuat |
+| FX-06 | ✅ DONE | `d7c9d69` | Rate limiter membaca X-Forwarded-For; dokumentasi uvicorn 2 workers runbook |
+| FX-07 | ✅ DONE | `f21f7af` | Penggantian migrate.sh dengan Alembic migrations terkelola & guarded reset |
+| FX-10 | ✅ DONE | `988858e` | full_text_redacted pada scoring & pengerasan grounding quote min 5 karakter |
+| FX-11 | ✅ DONE | `29ab6a5` | Verifier async, cache DB llm_cache dengan prompt version/model, semaphore concurrency |
+| FX-12 | ✅ DONE | `aea52a0` | Sanitasi kontak HR di compiler, pemeriksaan pre-flight berlaku untuk semua task |
+| FX-13 | ✅ DONE | `95d768e` | Transaksi DB rapi, deduplikasi candidate_id, offload worker thread, executemany |
+| FX-14 | ✅ DONE | `40d4110` | Worker queue retry, reaper running stale, preload embedding model saat startup |
+| FX-15 | ✅ DONE | `f12c1e6` | Reusable AsyncClient session di gateway, resolusi key env, parse JSON robust, retry |
+| FX-16 | ✅ DONE | `fix(FX-16)` | Metrik riil Prometheus (/metrics) dari query database PostgreSQL |
+| FX-20 | ✅ DONE | `fix(FX-20)` | Regex word boundary ketat (\b) & deteksi negasi untuk akurasi skill matcher |
+| FX-21 | ✅ DONE | `54343e7` | Tanggal dinamis as_of, hapus fallback hardcode, aturan tahun Juli/Juni (24 bulan) |
+| FX-22 | ✅ DONE | `fix(FX-22)` | Normalisasi bobot kategori dua lapis dan re-normalisasi dinamis kategori aktif |
+| FX-23 | ✅ DONE | `46d76c3` | Section parser importance (Wajib -> MUST_HAVE, Nilai tambah -> NICE_TO_HAVE) |
+| FX-24 | ✅ DONE | `95a98bf`, `9a1c513` | Administrative Eligibility Gate: blind competency scoring, pgp_sym_encrypt, 3-status |
+| FX-25 | ✅ DONE | `fix(FX-25)` | Deduplikasi dokumen berbasis fingerprint teks ternormalisasi |
+| FX-26 | ✅ DONE | `fix(FX-26)` | Penalti low coverage (< 60% requirement terisi) & coverage tracking |
+| FX-30 | ✅ DONE | `502b769` | Asynchronous screening run queue via jobs_queue (HTTP 202) & status endpoint |
+| FX-31 | ✅ DONE | `502b769` | Taksonomi domain eksternal YAML (role_families, skills, certifications, leadership) |
+| FX-32 | ✅ DONE | `502b769` | Hybrid semantic retrieval (HNSW cosine + FTS plainto_tsquery + RRF k=60) |
+| FX-33 | ✅ DONE | `502b769` | Evaluasi regression gate, NDCG@5, Precision@Shortlist, baseline.json, private eval |
+| FX-40 | ✅ DONE | `502b769` | Bersih-bersih versi, konstanta rujukan SCORING_VERSION 2.0.0, ruff & mypy 0 error |
 
 **Daftar audit query tenant (FX-02):** _(agent: tulis file:baris → tabel → sudah difilter tenant? ya/tidak)_
 
