@@ -5,13 +5,12 @@ from __future__ import annotations
 import http.server
 import socketserver
 import threading
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 import pytest
 from playwright.sync_api import sync_playwright
-
-import urllib.error
-import urllib.request
 
 DIST_DIR = Path("frontend/dist").resolve()
 

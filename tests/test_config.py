@@ -51,8 +51,8 @@ def test_config_accepts_strong_secret():
         METRICS_TOKEN=metrics_val,
         DATABASE_URL="postgresql://user:password@127.0.0.1:5432/test_db",
     )
-    assert s.JWT_SECRET == jwt_val
-    assert s.METRICS_TOKEN == metrics_val
+    assert jwt_val == s.JWT_SECRET
+    assert metrics_val == s.METRICS_TOKEN
 
 
 def test_config_allows_test_env_bypass():
@@ -65,8 +65,9 @@ def test_config_allows_test_env_bypass():
 
 
 def test_conftest_guard_blocks_production_database():
-    import subprocess
     import os
+    import subprocess
+
     res = subprocess.run(
         [".venv/bin/pytest", "tests/test_health.py"],
         env={**os.environ, "TEST_DATABASE_URL": "postgresql://cv_screening_user:pass@127.0.0.1:5432/cv_screening"},

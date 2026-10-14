@@ -81,7 +81,22 @@ def eval_jd01(run) -> bool:
 
     grade = {c["cv_id"]: c["relevance_grade"] for c in lab["candidates"]}
     nd = ndcg_at_k(ranked_ids, grade)
+    nd5 = ndcg_at_k(ranked_ids, grade, k=5)
     ok_all &= check(f"NDCG@10 >= {A['min_ndcg_at_10']}", nd >= A["min_ndcg_at_10"], f"{nd:.3f}")
+    ok_all &= check("NDCG@5 >= 0.95", nd5 >= 0.95, f"{nd5:.3f}")
+
+    # Precision at shortlist (kandidat SHORTLIST yang berlabel Strong)
+    id_to_file = {c["cv_id"]: Path(c["file"]).name for c in lab["candidates"]}
+    shortlisted_strong = sum(
+        1 for cid in ranked_ids
+        if res.get(id_to_file.get(cid, ""), {}).get("recommendation") == "SHORTLIST" and grade.get(cid, 0) == 3
+    )
+    total_shortlisted = sum(
+        1 for cid in ranked_ids
+        if res.get(id_to_file.get(cid, ""), {}).get("recommendation") == "SHORTLIST"
+    ) or 1
+    p_shortlist = shortlisted_strong / total_shortlisted
+    check("Precision@Shortlist >= 0.90", p_shortlist >= 0.90, f"{p_shortlist:.2f} (info)")
 
     irr_fail = []
     for c in lab["candidates"]:

@@ -20,12 +20,12 @@ class Settings(BaseSettings):
     APP_HOST: str = "127.0.0.1"
 
     # Database
-    DATABASE_URL: str
+    DATABASE_URL: str = ""
     DB_POOL_MIN: int = 2
     DB_POOL_MAX: int = 10
 
     # JWT Auth
-    JWT_SECRET: str
+    JWT_SECRET: str = ""
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
 
@@ -40,7 +40,23 @@ class Settings(BaseSettings):
     LLM_GATEWAY_URL: str = "http://127.0.0.1:20128/v1"
     LLM_GATEWAY_KEY: str = ""
     LLM_MODEL_JD_COMPILER: str = "ag/gemini-3.8-flash-high"
+    LLM_MODEL_VERIFIER: str = "ag/gemini-3.8-flash-high"
     LLM_TEMPERATURE: float = 0.0
+    VERIFIER_CONCURRENCY: int = 5
+
+    # Eligibility Gate
+    ELIGIBILITY_FOUR_EYES: bool = True
+
+    # Taxonomy & Domain Configuration
+    TAXONOMY_DIR: str = "config/taxonomy"
+
+    # Hybrid Retrieval & Scoring Mode (FX-32)
+    SCORING_MODE: str = "rules"  # "rules" | "hybrid"
+    SEMANTIC_THRESHOLD: float = 0.65
+
+    # System Versions (FX-40)
+    EXTRACTOR_VERSION: str = "1.0.0"
+    SCORING_VERSION: str = "2.0.0"
 
     # Embedding
     EMBEDDING_MODEL: str = "microsoft/harrier-oss-v1-270m"
