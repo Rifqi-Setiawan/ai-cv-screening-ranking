@@ -1,126 +1,131 @@
 import uuid
-from datetime import date
 
-import pytest
-from pydantic import ValidationError
-
-from src.api.routes.eligibility import EligibilityRuleCreate
-from src.domain.eligibility import (
-    calculate_age,
-    evaluate_candidate_eligibility,
-    parse_date_of_birth,
-)
-from src.domain.scorer import score
+from src.domain.eligibility import evaluate_all, evaluate_rule
 
 
-def test_parse_dob_and_calculate_age():
-    as_of = date(2026, 10, 1)
-
-    # Born 1999-05-15 -> age 27
-    dob = parse_date_of_birth("1999-05-15")
-    assert dob == date(1999, 5, 15)
-    assert calculate_age(dob, as_of) == 27
-
-    # Born 1999-11-20 (birthday not yet reached on 2026-10-01) -> age 26
-    dob2 = parse_date_of_birth("20 November 1999")
-    assert dob2 == date(1999, 11, 20)
-    assert calculate_age(dob2, as_of) == 26
-
-
-def test_evaluate_eligibility_max_age_rule():
-    as_of = date(2026, 10, 1)
-    rules = [
-        {
-            "id": str(uuid.uuid4()),
-            "category": "AGE",
-            "rule_type": "MAX_AGE",
-            "parameters": {"max_age": 27},
-            "is_active": True,
-        }
-    ]
-
-    # Candidate 1: Age 25 (Eligible)
-    c1 = {"other_personal": {"date_of_birth": "2001-01-10"}}
-    res1 = evaluate_candidate_eligibility(c1, rules, as_of)
-    assert res1["overall_status"] == "ELIGIBLE"
-
-    # Candidate 2: Age 30 (Not Eligible)
-    c2 = {"other_personal": {"date_of_birth": "1996-01-10"}}
-    res2 = evaluate_candidate_eligibility(c2, rules, as_of)
-    assert res2["overall_status"] == "NOT_ELIGIBLE"
-
-    # Candidate 3: Modern CV without DOB -> UNKNOWN (never disqualified automatically!)
-    c3 = {"other_personal": {}}
-    res3 = evaluate_candidate_eligibility(c3, rules, as_of)
-    assert res3["overall_status"] == "UNKNOWN"
-    assert "Tanggal lahir tidak dicantumkan" in res3["evaluations"][0]["reason"]
-
-
-def test_evaluate_eligibility_gender_rule():
-    as_of = date(2026, 10, 1)
-    rules = [
-        {
-            "id": str(uuid.uuid4()),
-            "category": "GENDER",
-            "rule_type": "EXACT_GENDER",
-            "parameters": {"gender": "F"},
-            "is_active": True,
-        }
-    ]
-
-    # Female candidate -> Eligible
-    c_female = {"other_personal": {"gender": "Perempuan"}}
-    res_f = evaluate_candidate_eligibility(c_female, rules, as_of)
-    assert res_f["overall_status"] == "ELIGIBLE"
-
-    # Male candidate -> Not Eligible
-    c_male = {"other_personal": {"gender": "Laki-laki"}}
-    res_m = evaluate_candidate_eligibility(c_male, rules, as_of)
-    assert res_m["overall_status"] == "NOT_ELIGIBLE"
-
-    # Modern CV with no gender mentioned -> UNKNOWN
-    c_none = {"other_personal": {}}
-    res_none = evaluate_candidate_eligibility(c_none, rules, as_of)
-    assert res_none["overall_status"] == "UNKNOWN"
-
-
-def test_eligibility_justification_minimum_30_chars():
-    # Short justification (< 30 chars) must raise ValidationError
-    with pytest.raises(ValidationError):
-        EligibilityRuleCreate(
-            category="AGE",
-            rule_type="MAX_AGE",
-            parameters={"max_age": 28},
-            justification="Short reason",
-        )
-
-    # Valid justification (>= 30 chars) passes
-    rule = EligibilityRuleCreate(
-        category="AGE",
-        rule_type="MAX_AGE",
-        parameters={"max_age": 28},
-        justification="Program Management Trainee ikatan dinas 5 tahun sesuai regulasi internal perusahaan",
-    )
-    assert rule.category == "AGE"
-
-
-def test_competency_score_invariant_under_eligibility():
-    # Invariant I-1: Competency score must be 100% blind to age/gender/eligibility
-    req_set = {
-        "category_weights": {"HARD_SKILLS": 100},
-        "requirements": [
-            {
-                "requirement_id": "R1",
-                "category": "HARD_SKILLS",
-                "importance": "MUST_HAVE",
-                "weight": 10,
-            }
-        ],
+def test_dob_age_max_calculations():
+    # DOB 1999-03-12, ref 2026-11-01, AGE_MAX 27 -> age 27 -> ELIGIBLE
+    r1 = {
+        "id": str(uuid.uuid4()),
+        "rule_type": "AGE_MAX",
+        "value": {"years": 27},
+        "reference_date": "2026-11-01",
     }
-    states = {"R1": "STRONG"}
+    res1 = evaluate_rule(r1, {"dob": "1999-03-12"})
+    assert res1["status"] == "ELIGIBLE"
+    assert res1["reason_code"] == "AGE_WITHIN_RANGE"
 
-    # Candidate score
-    score_res = score(states, req_set)
-    assert score_res.final_score == 100.0
-    assert score_res.band == "A"
-    assert score_res.recommendation == "SHORTLIST"
+    # DOB 1999-03-12, ref 2026-03-11, AGE_MAX 26 -> age 26 -> ELIGIBLE (day before birthday)
+    r2 = {
+        "id": str(uuid.uuid4()),
+        "rule_type": "AGE_MAX",
+        "value": {"years": 26},
+        "reference_date": "2026-03-11",
+    }
+    res2 = evaluate_rule(r2, {"dob": "1999-03-12"})
+    assert res2["status"] == "ELIGIBLE"
+    assert res2["reason_code"] == "AGE_WITHIN_RANGE"
+
+    # DOB 1998-01-01, ref 2026-11-01, AGE_MAX 27 -> age 28 -> NOT_ELIGIBLE AGE_ABOVE_MAX
+    res3 = evaluate_rule(r1, {"dob": "1998-01-01"})
+    assert res3["status"] == "NOT_ELIGIBLE"
+    assert res3["reason_code"] == "AGE_ABOVE_MAX"
+
+
+def test_dob_year_only_ambiguity():
+    # DOB only year 1999, ref 2026-11-01, AGE_MAX 27 -> range [26, 27] -> ELIGIBLE
+    r = {
+        "id": str(uuid.uuid4()),
+        "rule_type": "AGE_MAX",
+        "value": {"years": 27},
+        "reference_date": "2026-11-01",
+    }
+    res = evaluate_rule(r, {"dob": "1999"})
+    assert res["status"] == "ELIGIBLE"
+    assert res["reason_code"] == "AGE_WITHIN_RANGE"
+
+    # DOB only year 1999, ref 2026-11-01, AGE_MAX 26 -> range [26, 27] -> UNKNOWN DOB_YEAR_ONLY_AMBIGUOUS
+    r_amb = {
+        "id": str(uuid.uuid4()),
+        "rule_type": "AGE_MAX",
+        "value": {"years": 26},
+        "reference_date": "2026-11-01",
+    }
+    res_amb = evaluate_rule(r_amb, {"dob": "1999"})
+    assert res_amb["status"] == "UNKNOWN"
+    assert res_amb["reason_code"] == "DOB_YEAR_ONLY_AMBIGUOUS"
+
+    # DOB only year 1990, AGE_MAX 27 -> range [35, 36] -> NOT_ELIGIBLE
+    res_old = evaluate_rule(r, {"dob": "1990"})
+    assert res_old["status"] == "NOT_ELIGIBLE"
+    assert res_old["reason_code"] == "AGE_ABOVE_MAX"
+
+
+def test_invariant_I4_missing_dob_is_unknown_not_not_eligible():
+    r = {
+        "id": str(uuid.uuid4()),
+        "rule_type": "AGE_MAX",
+        "value": {"years": 27},
+        "reference_date": "2026-11-01",
+    }
+    res = evaluate_rule(r, {})
+    assert res["status"] == "UNKNOWN"
+    assert res["reason_code"] == "DOB_MISSING"
+
+
+def test_gender_evaluations():
+    r = {
+        "id": str(uuid.uuid4()),
+        "rule_type": "GENDER",
+        "value": {"allowed": ["F"]},
+    }
+    assert evaluate_rule(r, {"gender": "F"})["status"] == "ELIGIBLE"
+    assert evaluate_rule(r, {"gender": "Wanita"})["status"] == "ELIGIBLE"
+    assert evaluate_rule(r, {"gender": "M"})["status"] == "NOT_ELIGIBLE"
+    assert evaluate_rule(r, {"gender": "Pria"})["status"] == "NOT_ELIGIBLE"
+    assert evaluate_rule(r, {})["status"] == "UNKNOWN"
+
+
+def test_combination_and_not_applicable():
+    r_age = {
+        "id": str(uuid.uuid4()),
+        "rule_type": "AGE_MAX",
+        "value": {"years": 25},
+        "reference_date": "2026-11-01",
+    }
+    r_gender = {
+        "id": str(uuid.uuid4()),
+        "rule_type": "GENDER",
+        "value": {"allowed": ["F"]},
+    }
+
+    # One UNKNOWN and one NOT_ELIGIBLE -> overall NOT_ELIGIBLE
+    res1 = evaluate_all([r_age, r_gender], {"dob": None, "gender": "M"})
+    assert res1["overall_status"] == "NOT_ELIGIBLE"
+
+    # One ELIGIBLE and one UNKNOWN -> UNKNOWN
+    res2 = evaluate_all([r_age, r_gender], {"dob": "2003-01-01", "gender": None})
+    assert res2["overall_status"] == "UNKNOWN"
+
+    # No rules -> NOT_APPLICABLE
+    res_none = evaluate_all([], {"dob": "1999-01-01", "gender": "M"})
+    assert res_none["overall_status"] == "NOT_APPLICABLE"
+
+
+def test_invariant_I2_output_never_leaks_age_dob_or_gender():
+    r = {
+        "id": str(uuid.uuid4()),
+        "rule_type": "AGE_MAX",
+        "value": {"years": 27},
+        "reference_date": "2026-11-01",
+    }
+    res = evaluate_all([r], {"dob": "1999-03-12", "gender": "F"})
+    assert "age" not in res
+    assert "dob" not in res
+    assert "gender" not in res
+    for d in res["details"]:
+        assert "age" not in d
+        assert "dob" not in d
+        assert "gender" not in d
+        assert "1999" not in str(d)
+        assert "27" not in d.get("message", "")

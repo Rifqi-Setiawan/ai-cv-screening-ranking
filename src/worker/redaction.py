@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from src.domain.pii import DEMOGRAPHIC_LINE_REGEX, EMAIL_REGEX, PHONE_REGEX
+
 DEMOGRAPHIC_PATTERNS = [
     re.compile(r"jenis\s+kelamin\s*:\s*[^\n]+", re.IGNORECASE),
     re.compile(r"gender\s*:\s*[^\n]+", re.IGNORECASE),
@@ -17,9 +19,6 @@ DEMOGRAPHIC_PATTERNS = [
     re.compile(r"personal\s+details", re.IGNORECASE),
     re.compile(r"data\s+pribadi", re.IGNORECASE),
 ]
-
-EMAIL_REGEX = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
-PHONE_REGEX = re.compile(r"(?:\+62|62|08)[0-9\s-]{8,15}")
 
 
 NON_NAME_WORDS = {
@@ -55,9 +54,8 @@ def redact_text(text: str, name: str = "", emails: list[str] | None = None, phon
         return ""
     result = text
 
-    # Remove demographic lines
-    for pat in DEMOGRAPHIC_PATTERNS:
-        result = pat.sub("", result)
+    # Remove all demographic lines completely
+    result = DEMOGRAPHIC_LINE_REGEX.sub("", result)
 
     # Redact known emails and general emails first to avoid token fragmentation
     if emails:
@@ -194,7 +192,8 @@ def extract_identity_and_redact(
             )
 
     # Skills list chunk
-    skills_text = ", ".join(matching["skills"])
+    skills_items = [s["name"] if isinstance(s, dict) else str(s) for s in matching.get("skills", [])]
+    skills_text = ", ".join(skills_items)
     if skills_text:
         chunks.append(
             {
