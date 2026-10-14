@@ -383,7 +383,7 @@ def classify_role_family(title: str, text: str = "") -> str:
     return "other"
 
 
-def parse_ym(val: str, as_of: str | None = None) -> tuple[int, int] | None:
+def parse_ym(val: str | None, as_of: str | None = None) -> tuple[int, int] | None:
     if not as_of:
         as_of = date.today().isoformat()
     if not val:

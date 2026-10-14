@@ -170,10 +170,7 @@ def parse_experiences(section_text: str, full_doc_text: str) -> list[dict[str, A
                 org = parts[1].strip().split(",")[0].strip()
             else:
                 title = prev_line.strip()
-                if idx > 1:
-                    org = lines[idx - 2].strip().split(",")[0].strip()
-                else:
-                    title = cand_txt
+                org = lines[idx - 2].strip().split(",")[0].strip() if idx > 1 else ""
                 title = re.sub(
                     r"^(?:interned\s+as\s+a|worked\s+as\s+an|worked\s+as\s+a|sebagai)\s+", "", title, flags=re.I
                 ).strip()

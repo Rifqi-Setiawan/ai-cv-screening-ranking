@@ -257,11 +257,7 @@ async def compile_job_requirements(jd_text: str, tenant_id: uuid.UUID | None = N
             logger.warning(f"Validation failed for LLM requirements output: {e}, falling back to rule-based.")
             validated_reqs = []
 
-    if validated_reqs:
-        requirements = validated_reqs
-    else:
-        # Deterministic rule-based fallback
-        requirements = compile_jd_rule_based(jd_text)
+    requirements = validated_reqs or compile_jd_rule_based(jd_text)
 
     # Attach any overall JD prohibited flags to requirements or set level
     all_prohibited = list(overall_lint["prohibited_flags"])
