@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,12 +20,12 @@ class Settings(BaseSettings):
     APP_HOST: str = "127.0.0.1"
 
     # Database
-    DATABASE_URL: str = "postgresql://cv_screening_user:59Vf0GijbEHFxZyfUHsjoJs9@127.0.0.1:5432/cv_screening"
+    DATABASE_URL: str
     DB_POOL_MIN: int = 2
     DB_POOL_MAX: int = 10
 
     # JWT Auth
-    JWT_SECRET: str = "default-insecure-secret-key-change-in-production"
+    JWT_SECRET: str
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
 
@@ -44,6 +45,16 @@ class Settings(BaseSettings):
     # Embedding
     EMBEDDING_MODEL: str = "microsoft/harrier-oss-v1-270m"
     EMBEDDING_DIM: int = 640
+
+    @model_validator(mode="after")
+    def validate_security(self) -> Settings:
+        if self.APP_ENV != "test":
+            if not self.JWT_SECRET or len(self.JWT_SECRET) < 32:
+                raise ValueError("JWT_SECRET must be at least 32 characters in production/development")
+            lower_jwt = self.JWT_SECRET.lower()
+            if any(term in lower_jwt for term in ("insecure", "change", "secret-key")):
+                raise ValueError("JWT_SECRET contains insecure default terms")
+        return self
 
 
 settings = Settings()

@@ -22,8 +22,13 @@ sha256sum -c SHA256SUMS.txt
 DUMP_FILE=$(ls *.dump | head -n 1)
 RESTORE_DB="cv_screening_restore_test"
 
+if [ -f "/srv/hermes-control/services/cv-screening/.env" ]; then
+  set -a
+  source "/srv/hermes-control/services/cv-screening/.env"
+  set +a
+fi
+
 export LD_LIBRARY_PATH="/srv/apps/hermes/opt/postgresql/usr/lib/x86_64-linux-gnu"
-export PGPASSWORD="59Vf0GijbEHFxZyfUHsjoJs9"
 
 echo "=== [2/4] Preparing Temporary Isolated Database '${RESTORE_DB}' ==="
 dropdb -h 127.0.0.1 -p 5432 -U cv_screening_user --if-exists "${RESTORE_DB}"

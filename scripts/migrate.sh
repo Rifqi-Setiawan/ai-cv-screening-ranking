@@ -11,7 +11,7 @@ echo "=== 2. Provision Extensions (Superuser) ==="
 psql -h /tmp -p 5432 -U hermes -d cv_screening -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pgcrypto;"
 
 echo "=== 3. Apply Schema (cv_screening_user) ==="
-PGPASSWORD='59Vf0GijbEHFxZyfUHsjoJs9' psql -h 127.0.0.1 -p 5432 -U cv_screening_user -d cv_screening -f docs/spec/schemas/db_schema.sql
+psql "${DATABASE_URL}" -f docs/spec/schemas/db_schema.sql
 
 echo "=== 4. Seed Initial Users ==="
 PYTHONPATH=. .venv/bin/python scripts/seed_users.py

@@ -10,12 +10,17 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 TARGET_DIR="${BACKUP_DIR}/${TIMESTAMP}"
 mkdir -p "${TARGET_DIR}"
 
+if [ -f "/srv/hermes-control/services/cv-screening/.env" ]; then
+  set -a
+  source "/srv/hermes-control/services/cv-screening/.env"
+  set +a
+fi
+
 export LD_LIBRARY_PATH="/srv/apps/hermes/opt/postgresql/usr/lib/x86_64-linux-gnu"
-export PGPASSWORD="59Vf0GijbEHFxZyfUHsjoJs9"
 
 echo "=== [1/3] Dumping PostgreSQL database 'cv_screening' ==="
 /srv/apps/hermes/opt/postgresql/usr/lib/postgresql/16/bin/pg_dump \
-  -h 127.0.0.1 -p 5432 -U cv_screening_user -d cv_screening \
+  "${DATABASE_URL:-postgresql://cv_screening_user@127.0.0.1:5432/cv_screening}" \
   --format=custom --file="${TARGET_DIR}/cv_screening_${TIMESTAMP}.dump"
 
 echo "=== [2/3] Archiving File Vault ==="
