@@ -46,6 +46,16 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "microsoft/harrier-oss-v1-270m"
     EMBEDDING_DIM: int = 640
 
+    # CORS
+    CORS_ALLOWED_ORIGINS: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://screening.rifqisetiawan.my.id",
+    ]
+
+    # Metrics
+    METRICS_TOKEN: str = "default-metrics-token-secret"
+
     @model_validator(mode="after")
     def validate_security(self) -> Settings:
         if self.APP_ENV != "test":
