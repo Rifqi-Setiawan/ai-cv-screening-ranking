@@ -109,7 +109,7 @@ async def trigger_screening_run(
             """
             SELECT d.id as document_id, d.original_filename as file_name, d.sha256 as file_hash,
                    d.status as quality_status, d.flags, d.reasons, d.candidate_id,
-                   cp.matching_profile
+                   cp.matching_profile, cp.full_text_redacted
             FROM documents d
             LEFT JOIN candidate_profiles cp ON cp.document_id = d.id AND cp.tenant_id = d.tenant_id
             WHERE d.job_id = %s AND d.tenant_id = %s
@@ -126,7 +126,7 @@ async def trigger_screening_run(
             cand_id = cv["candidate_id"] or doc_id
             file_name = cv["file_name"]
             matching_prof = cv["matching_profile"] or {}
-            full_text = ""
+            full_text = cv.get("full_text_redacted") or ""
             flags = list(cv["flags"] or [])
             reasons = list(cv["reasons"] or [])
 
@@ -176,7 +176,7 @@ async def trigger_screening_run(
 
                 # Optional LLM verifier
                 if payload.use_verifier and st in ("PARTIAL", "STRONG") and evs:
-                    v_st, v_quote, v_flgs = verify_requirement_with_llm(
+                    v_st, v_quote, v_flgs = await verify_requirement_with_llm(
                         full_text, r, st, [e.get("quote", "") for e in evs]
                     )
                     st = v_st
