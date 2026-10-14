@@ -117,7 +117,7 @@ async def import_approved_requirements(
     current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.RECRUITER])),
 ) -> dict[str, Any]:
     async with get_connection() as conn, conn.cursor() as cur:
-        job = await get_job_for_tenant(cur, job_id, current_user.tenant_id)
+        await get_job_for_tenant(cur, job_id, current_user.tenant_id)
 
         set_id = uuid.uuid4()
         await cur.execute(
@@ -412,4 +412,3 @@ async def compile_preview_endpoint(
         )
     compiled = await compile_job_requirements(req.jd_text, tenant_id=current_user.tenant_id)
     return compiled
-

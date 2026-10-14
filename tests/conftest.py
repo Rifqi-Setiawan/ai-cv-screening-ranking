@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 import os
+import sys
+from pathlib import Path
+
+# Add root directory to python path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Set test environment before importing application
 os.environ.setdefault("APP_ENV", "test")
@@ -21,7 +26,6 @@ import pytest_asyncio
 from src.api.main import app
 from src.domain.auth import create_access_token
 from src.domain.models import UserRole
-from src.infrastructure.config import settings
 
 DEMO_TENANT_ID = "00000000-0000-0000-0000-000000000001"
 

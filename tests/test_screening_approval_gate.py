@@ -1,6 +1,8 @@
 import uuid
+
 import httpx
 import pytest
+
 from src.domain.auth import create_access_token
 from src.domain.models import UserRole
 from src.infrastructure.database import get_connection

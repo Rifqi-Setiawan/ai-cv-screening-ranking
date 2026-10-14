@@ -159,13 +159,48 @@ def parse_experiences(section_text: str, full_doc_text: str) -> list[dict[str, A
             parts = re.split(r"[,|—–-]", pre_text)
             if len(parts) >= 2:
                 p0, p1 = parts[0].strip(), parts[1].strip()
-                if any(k in p1.lower() for k in ["analyst", "engineer", "manager", "staff", "intern", "developer", "consultant", "spv", "lead", "officer", "asisten"]):
+                if any(
+                    k in p1.lower()
+                    for k in [
+                        "analyst",
+                        "engineer",
+                        "manager",
+                        "staff",
+                        "intern",
+                        "developer",
+                        "consultant",
+                        "spv",
+                        "lead",
+                        "officer",
+                        "asisten",
+                    ]
+                ):
                     title, org = p1, p0
                 else:
                     title, org = p0, p1
             elif idx + 1 < len(lines) and not RANGE_REGEX.search(lines[idx + 1]):
                 next_l = lines[idx + 1].strip("•-* ")
-                if any(k in next_l.lower() for k in ["intern", "analyst", "engineer", "staff", "manager", "lead", "developer", "officer", "consultant", "spv", "supervisor", "head", "koordinator"]) or len(next_l) < 45:
+                if (
+                    any(
+                        k in next_l.lower()
+                        for k in [
+                            "intern",
+                            "analyst",
+                            "engineer",
+                            "staff",
+                            "manager",
+                            "lead",
+                            "developer",
+                            "officer",
+                            "consultant",
+                            "spv",
+                            "supervisor",
+                            "head",
+                            "koordinator",
+                        ]
+                    )
+                    or len(next_l) < 45
+                ):
                     title = next_l
                     org = pre_text
                 else:
@@ -188,17 +223,63 @@ def parse_experiences(section_text: str, full_doc_text: str) -> list[dict[str, A
                     org = p_parts[1].strip()
                 else:
                     title = cand_txt
-                title = re.sub(r"^(?:interned\s+as\s+a|worked\s+as\s+an|worked\s+as\s+a|sebagai)\s+", "", title, flags=re.I).strip()
+                title = re.sub(
+                    r"^(?:interned\s+as\s+a|worked\s+as\s+an|worked\s+as\s+a|sebagai)\s+", "", title, flags=re.I
+                ).strip()
 
         if not title:
-            candidate_next = lines[idx + 1].strip("•-* ") if (idx + 1 < len(lines) and not RANGE_REGEX.search(lines[idx + 1])) else ""
-            candidate_prev = lines[idx - 1].strip("•-* ") if (idx > 0 and not RANGE_REGEX.search(lines[idx - 1])) else ""
+            candidate_next = (
+                lines[idx + 1].strip("•-* ")
+                if (idx + 1 < len(lines) and not RANGE_REGEX.search(lines[idx + 1]))
+                else ""
+            )
+            candidate_prev = (
+                lines[idx - 1].strip("•-* ") if (idx > 0 and not RANGE_REGEX.search(lines[idx - 1])) else ""
+            )
 
-            if candidate_next and ("," in candidate_next or "-" in candidate_next or any(k in candidate_next.lower() for k in ["analyst", "engineer", "manager", "staff", "intern", "developer", "consultant", "officer", "lead", "head", "specialist", "direktur", "spv", "project", "asisten", "asst"])):
+            if candidate_next and (
+                "," in candidate_next
+                or "-" in candidate_next
+                or any(
+                    k in candidate_next.lower()
+                    for k in [
+                        "analyst",
+                        "engineer",
+                        "manager",
+                        "staff",
+                        "intern",
+                        "developer",
+                        "consultant",
+                        "officer",
+                        "lead",
+                        "head",
+                        "specialist",
+                        "direktur",
+                        "spv",
+                        "project",
+                        "asisten",
+                        "asst",
+                    ]
+                )
+            ):
                 parts = re.split(r"[,|—–-]", candidate_next)
                 if len(parts) >= 2:
                     p0, p1 = parts[0].strip(), parts[1].strip()
-                    if any(k in p1.lower() for k in ["analyst", "engineer", "manager", "staff", "intern", "developer", "consultant", "spv", "lead", "officer"]):
+                    if any(
+                        k in p1.lower()
+                        for k in [
+                            "analyst",
+                            "engineer",
+                            "manager",
+                            "staff",
+                            "intern",
+                            "developer",
+                            "consultant",
+                            "spv",
+                            "lead",
+                            "officer",
+                        ]
+                    ):
                         title, org = p1, p0
                     else:
                         title, org = p0, p1
@@ -210,7 +291,21 @@ def parse_experiences(section_text: str, full_doc_text: str) -> list[dict[str, A
                 parts = re.split(r"[,|—–-]", candidate_prev)
                 if len(parts) >= 2:
                     p0, p1 = parts[0].strip(), parts[1].strip()
-                    if any(k in p1.lower() for k in ["analyst", "engineer", "manager", "staff", "intern", "developer", "consultant", "spv", "lead", "officer"]):
+                    if any(
+                        k in p1.lower()
+                        for k in [
+                            "analyst",
+                            "engineer",
+                            "manager",
+                            "staff",
+                            "intern",
+                            "developer",
+                            "consultant",
+                            "spv",
+                            "lead",
+                            "officer",
+                        ]
+                    ):
                         title, org = p1, p0
                     else:
                         title, org = p0, p1
@@ -338,7 +433,24 @@ def parse_education(section_text: str, full_doc_text: str) -> list[dict[str, Any
         deg_raw = " ".join(ed_lines[:4]) if ed_lines else lvl
         inst = ""
         for l in ed_lines:
-            if any(u in l.lower() for u in ["universitas", "university", "institut", "institute", "politeknik", "uin", "itb", "ugm", "unpad", "unri", "unisba", "unpas", "ipb"]):
+            if any(
+                u in l.lower()
+                for u in [
+                    "universitas",
+                    "university",
+                    "institut",
+                    "institute",
+                    "politeknik",
+                    "uin",
+                    "itb",
+                    "ugm",
+                    "unpad",
+                    "unri",
+                    "unisba",
+                    "unpas",
+                    "ipb",
+                ]
+            ):
                 inst = l
                 break
         entries.append(
@@ -413,12 +525,34 @@ def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
     sk_lines = [sk_text] if sk_text else []
     for extra_lbl in ("additional_info", "other", "summary"):
         for text in sec_map.get(extra_lbl, []):
-            m_sk = re.search(r"(?:skills?|keahlian|kemampuan|technical skills?|hard skills?)\s*:\s*(.+)", text, re.IGNORECASE | re.DOTALL)
+            m_sk = re.search(
+                r"(?:skills?|keahlian|kemampuan|technical skills?|hard skills?)\s*:\s*(.+)",
+                text,
+                re.IGNORECASE | re.DOTALL,
+            )
             if m_sk:
                 sk_lines.append(m_sk.group(1).strip())
             else:
                 for line in text.splitlines():
-                    if any(w in line.lower() for w in ["skill", "keahlian", "kemampuan", "tools", "software", "excel", "stata", "spss", "python", "sql", "tableau", "power bi", "looker", "accounting"]):
+                    if any(
+                        w in line.lower()
+                        for w in [
+                            "skill",
+                            "keahlian",
+                            "kemampuan",
+                            "tools",
+                            "software",
+                            "excel",
+                            "stata",
+                            "spss",
+                            "python",
+                            "sql",
+                            "tableau",
+                            "power bi",
+                            "looker",
+                            "accounting",
+                        ]
+                    ):
                         sk_lines.append(line)
     if sk_lines:
         sk_text = "\n".join(sk_lines)
@@ -428,7 +562,9 @@ def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
         exp_fallbacks = []
         for extra_lbl in ("other", "summary"):
             for text in sec_map.get(extra_lbl, []):
-                if any(w in text.lower() for w in ["magang", "intern", "experience", "kerja", "analyst"]) or RANGE_REGEX.search(text):
+                if any(
+                    w in text.lower() for w in ["magang", "intern", "experience", "kerja", "analyst"]
+                ) or RANGE_REGEX.search(text):
                     exp_fallbacks.append(text)
         if exp_fallbacks:
             exp_text = "\n".join(exp_fallbacks)
@@ -438,7 +574,20 @@ def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
         ed_fallbacks = []
         for extra_lbl in ("other", "summary"):
             for text in sec_map.get(extra_lbl, []):
-                if any(w in text.lower() for w in ["universitas", "university", "institut", "bachelor", "master", "sarjana", "s1", "s2", "d3"]):
+                if any(
+                    w in text.lower()
+                    for w in [
+                        "universitas",
+                        "university",
+                        "institut",
+                        "bachelor",
+                        "master",
+                        "sarjana",
+                        "s1",
+                        "s2",
+                        "d3",
+                    ]
+                ):
                     ed_fallbacks.append(text)
         if ed_fallbacks:
             ed_text = "\n".join(ed_fallbacks)

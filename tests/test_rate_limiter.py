@@ -1,9 +1,10 @@
 import asyncio
-import time
 import uuid
+
 import httpx
 import pytest
 from fastapi import APIRouter, Depends, FastAPI
+
 from src.api.middleware.rate_limiter import check_rate_limit, clear_rate_limiter_state
 from src.domain.auth import create_access_token
 from src.domain.models import UserRole

@@ -257,7 +257,9 @@ async def delete_candidate_permanently(
             )
 
             # Delete from documents table
-            await cur.execute("DELETE FROM documents WHERE id = %s AND tenant_id = %s", (doc_id, current_user.tenant_id))
+            await cur.execute(
+                "DELETE FROM documents WHERE id = %s AND tenant_id = %s", (doc_id, current_user.tenant_id)
+            )
 
         # 2. Mark tombstone in candidates table
         await cur.execute(

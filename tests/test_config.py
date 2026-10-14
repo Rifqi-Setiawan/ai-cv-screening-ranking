@@ -1,5 +1,6 @@
 import pytest
 from pydantic import ValidationError
+
 from src.infrastructure.config import Settings
 
 

@@ -1,5 +1,5 @@
-import json
 import uuid
+
 import httpx
 import pytest
 import pytest_asyncio
@@ -7,7 +7,6 @@ import pytest_asyncio
 from src.domain.auth import create_access_token
 from src.domain.models import UserRole
 from src.infrastructure.database import get_connection
-
 
 TENANT_A = uuid.uuid4()
 TENANT_B = uuid.uuid4()
@@ -159,11 +158,15 @@ async def test_tenant_isolation_cross_tenant_access_denied(client: httpx.AsyncCl
     assert r.status_code == 404
 
     # 6. POST /candidates/{B_cand}/reveal-identity -> 404
-    r = await client.post(f"/api/v1/candidates/{cand_b}/reveal-identity", json={"reason": "Auditing IDOR"}, headers=headers_a)
+    r = await client.post(
+        f"/api/v1/candidates/{cand_b}/reveal-identity", json={"reason": "Auditing IDOR"}, headers=headers_a
+    )
     assert r.status_code == 404
 
     # 7. POST /candidates/C-xxxx(B)/reveal-identity -> 404
-    r = await client.post(f"/api/v1/candidates/{cand_b_code}/reveal-identity", json={"reason": "Auditing IDOR by code"}, headers=headers_a)
+    r = await client.post(
+        f"/api/v1/candidates/{cand_b_code}/reveal-identity", json={"reason": "Auditing IDOR by code"}, headers=headers_a
+    )
     assert r.status_code == 404
 
     # 8. DELETE /candidates/{B_cand} -> 404
@@ -195,5 +198,7 @@ async def test_tenant_isolation_cross_tenant_access_denied(client: httpx.AsyncCl
 async def test_reveal_identity_non_existent_candidate_returns_404(client: httpx.AsyncClient, setup_two_tenants):
     headers_a = {"Authorization": f"Bearer {setup_two_tenants['token_a']}"}
     fake_id = str(uuid.uuid4())
-    r = await client.post(f"/api/v1/candidates/{fake_id}/reveal-identity", json={"reason": "Testing 404"}, headers=headers_a)
+    r = await client.post(
+        f"/api/v1/candidates/{fake_id}/reveal-identity", json={"reason": "Testing 404"}, headers=headers_a
+    )
     assert r.status_code == 404

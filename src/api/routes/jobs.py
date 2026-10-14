@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.api.dependencies import get_current_user, get_job_for_tenant, require_role
@@ -231,7 +232,10 @@ async def update_job(
         else:
             row = existing
 
-        await cur.execute("SELECT count(id) as count FROM documents WHERE job_id = %s AND tenant_id = %s", (job_id, current_user.tenant_id))
+        await cur.execute(
+            "SELECT count(id) as count FROM documents WHERE job_id = %s AND tenant_id = %s",
+            (job_id, current_user.tenant_id),
+        )
         doc_row = await cur.fetchone()
         cv_count = doc_row["count"] if doc_row else 0
 
@@ -273,7 +277,9 @@ async def delete_job(
         )
 
         # 2. Delete screening_runs for this job (child scores/evidence cascade)
-        await cur.execute("DELETE FROM screening_runs WHERE job_id = %s AND tenant_id = %s", (job_id, current_user.tenant_id))
+        await cur.execute(
+            "DELETE FROM screening_runs WHERE job_id = %s AND tenant_id = %s", (job_id, current_user.tenant_id)
+        )
 
         # 3. Delete the job (documents & requirement_sets cascade)
         await cur.execute(

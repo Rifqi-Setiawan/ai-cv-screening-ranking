@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
-from typing import Any
 
 from fastapi import HTTPException, Request, status
+
 from src.domain.auth import decode_access_token
 
 _request_history: dict[str, list[float]] = defaultdict(list)
@@ -34,7 +34,8 @@ def check_rate_limit(max_requests: int = 60, window_seconds: int = 60):
         # Periodic sweep every 1000 requests to prune stale memory
         if _total_requests_counter % 1000 == 0:
             stale_keys = [
-                k for k, timestamps in _request_history.items()
+                k
+                for k, timestamps in _request_history.items()
                 if not timestamps or timestamps[-1] < (now - window_seconds)
             ]
             for k in stale_keys:

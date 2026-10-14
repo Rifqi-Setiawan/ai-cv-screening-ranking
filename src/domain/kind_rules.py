@@ -116,60 +116,251 @@ CONCEPT_ALIASES = {
     "skill:payroll": ["payroll", "penggajian", "upah"],
     "skill:bpjs": ["bpjs", "bpjs kesehatan", "bpjs ketenagakerjaan"],
     "skill:labor_law_id": ["uu ketenagakerjaan", "pkwt", "pkwtt", "hubungan industrial"],
-    "role_family:civil_engineering": ["sipil", "civil", "konstruksi", "pelaksana", "site manager", "site engineer", "pengawas lapangan"],
-    "experience:civil_construction": ["sipil", "konstruksi", "pelaksana", "site engineer", "proyek", "pengawas", "kontraktor", "smelter", "bangunan"],
-    "skill:autocad": ["autocad", "cad", "computer aided design", "drafting", "shop drawing", "gambar teknik", "gambar kerja"],
+    "role_family:civil_engineering": [
+        "sipil",
+        "civil",
+        "konstruksi",
+        "pelaksana",
+        "site manager",
+        "site engineer",
+        "pengawas lapangan",
+    ],
+    "experience:civil_construction": [
+        "sipil",
+        "konstruksi",
+        "pelaksana",
+        "site engineer",
+        "proyek",
+        "pengawas",
+        "kontraktor",
+        "smelter",
+        "bangunan",
+    ],
+    "skill:autocad": [
+        "autocad",
+        "cad",
+        "computer aided design",
+        "drafting",
+        "shop drawing",
+        "gambar teknik",
+        "gambar kerja",
+    ],
     "skill:technical_drawing": ["gambar teknik", "shop drawing", "gambar kerja", "autocad", "cad", "drafting"],
     "skill:shop_drawing": ["shop drawing", "gambar kerja", "gambar teknik", "autocad"],
     "skill:sketchup": ["sketchup", "3d modelling", "sketch up"],
     "skill:sap2000": ["sap2000", "sap 2000", "etabs", "analisis struktur"],
     "skill:etabs": ["etabs", "sap2000"],
-    "skill:rab_calculation": ["rab", "rencana anggaran biaya", "budgeting", "estimasi biaya", "estimator", "bill of quantity", "boq"],
-    "skill:project_scheduling": ["ms project", "microsoft project", "penjadwalan", "scheduling", "kurva s", "manajemen proyek"],
+    "skill:rab_calculation": [
+        "rab",
+        "rencana anggaran biaya",
+        "budgeting",
+        "estimasi biaya",
+        "estimator",
+        "bill of quantity",
+        "boq",
+    ],
+    "skill:project_scheduling": [
+        "ms project",
+        "microsoft project",
+        "penjadwalan",
+        "scheduling",
+        "kurva s",
+        "manajemen proyek",
+    ],
     "skill:microsoft_excel": ["excel", "ms excel", "microsoft excel", "spreadsheet", "ms. office", "microsoft office"],
     "skill:microsoft_project": ["microsoft project", "ms project", "project"],
     "skill:earthwork": ["pekerjaan tanah", "tanah dasar", "galian", "timbunan", "cut and fill", "earthwork"],
     "skill:foundation": ["pondasi", "foundation", "tiang pancang", "bored pile", "base a"],
-    "skill:concrete_work": ["beton", "concrete", "pembesian", "bekisting", "lean concrete", "rigid pavement", "readymix"],
+    "skill:concrete_work": [
+        "beton",
+        "concrete",
+        "pembesian",
+        "bekisting",
+        "lean concrete",
+        "rigid pavement",
+        "readymix",
+    ],
     "skill:drainage": ["drainase", "drainage", "saluran air", "gorong", "plumbing"],
     "skill:drainase": ["drainase", "drainage", "saluran air", "gorong", "plumbing"],
     "skill:finishing_work": ["finishing", "pekerjaan finishing", "arsitektur"],
-    "skill:k3_konstruksi": ["k3", "hse", "keselamatan kerja", "keselamatan dan kesehatan kerja", "k3 konstruksi", "ahli k3", "bimtek k3"],
+    "skill:k3_konstruksi": [
+        "k3",
+        "hse",
+        "keselamatan kerja",
+        "keselamatan dan kesehatan kerja",
+        "k3 konstruksi",
+        "ahli k3",
+        "bimtek k3",
+    ],
     "skill:construction_safety": ["k3", "hse", "keselamatan kerja", "safety"],
     "skill:site_supervision": ["pengawas", "pengawasan", "site supervision", "pelaksana", "mandor", "site manager"],
     "skill:subcontractor_management": ["subkontraktor", "mandor", "tenaga kerja", "pekerja", "vendor"],
-    "skill:progress_reporting": ["laporan progres", "laporan harian", "laporan mingguan", "laporan bulanan", "opname", "progress report"],
+    "skill:progress_reporting": [
+        "laporan progres",
+        "laporan harian",
+        "laporan mingguan",
+        "laporan bulanan",
+        "opname",
+        "progress report",
+    ],
     "skill:quality_control": ["quality control", "pengawasan mutu", "inspeksi", "qc", "qa/qc"],
     "skill:sports_facility_construction": ["lapangan", "olahraga", "sports", "stadion"],
     "skill:swimming_pool_construction": ["kolam renang", "pool", "waterwork"],
     "cert:ska": ["ska", "sertifikat keahlian", "ahli muda", "ahli madya", "ahli utama", "lpjk"],
     "cert:skt": ["skt", "sertifikat keterampilan"],
     "cert:k3_konstruksi": ["k3", "ahli k3", "k3 konstruksi", "bimtek k3", "ahli keselamatan", "hse"],
-    "education:civil_engineering": ["teknik sipil", "civil engineering", "teknik bangunan", "sarjana terapan teknik sipil", "sipil"],
-    "role_family:business_analyst": ["business analyst", "analis bisnis", "business development", "consultant", "analyst", "analis"],
+    "education:civil_engineering": [
+        "teknik sipil",
+        "civil engineering",
+        "teknik bangunan",
+        "sarjana terapan teknik sipil",
+        "sipil",
+    ],
+    "role_family:business_analyst": [
+        "business analyst",
+        "analis bisnis",
+        "business development",
+        "consultant",
+        "analyst",
+        "analis",
+    ],
     "role_family:management_consultant": ["consultant", "konsultan", "advisory", "strategic", "business consultant"],
-    "role_family:financial_analyst": ["financial analyst", "finance analyst", "analis keuangan", "investment analyst", "analis investasi", "finance", "keuangan"],
-    "skill:microsoft_excel": ["excel", "ms excel", "microsoft excel", "spreadsheet", "ms. office", "microsoft office", "google sheets", "pivot table", "power query", "vlookup"],
-    "skill:financial_modeling": ["financial model", "financial modeling", "pemodelan keuangan", "model keuangan", "pemodelan data dan keuangan", "financial forecast", "proyeksi keuangan", "master budget", "budgeting", "financial projection"],
+    "role_family:financial_analyst": [
+        "financial analyst",
+        "finance analyst",
+        "analis keuangan",
+        "investment analyst",
+        "analis investasi",
+        "finance",
+        "keuangan",
+    ],
+    "skill:microsoft_excel": [
+        "excel",
+        "ms excel",
+        "microsoft excel",
+        "spreadsheet",
+        "ms. office",
+        "microsoft office",
+        "google sheets",
+        "pivot table",
+        "power query",
+        "vlookup",
+    ],
+    "skill:financial_modeling": [
+        "financial model",
+        "financial modeling",
+        "pemodelan keuangan",
+        "model keuangan",
+        "pemodelan data dan keuangan",
+        "financial forecast",
+        "proyeksi keuangan",
+        "master budget",
+        "budgeting",
+        "financial projection",
+    ],
     "skill:data_modeling": ["data modeling", "pemodelan data", "model data", "pemodelan data dan keuangan"],
-    "skill:data_analysis": ["data analysis", "analisis data", "analisa data", "data analyst", "analythical thinking", "analytical thinking", "spss", "r studio", "rstudio", "stata", "warppls", "olah data", "regresi", "kuantitatif"],
-    "skill:report_writing": ["penulisan laporan", "report writing", "laporan bisnis", "rekomendasi bisnis", "laporan keuangan", "menyusun laporan", "membuat laporan", "laporan", "reporting"],
-    "skill:presentation": ["presentasi", "presentation", "public speaking", "pitch deck", "slide", "powerpoint", "komunikasi", "presentations skill"],
-    "skill:business_analysis": ["business analysis", "analisis bisnis", "analisa bisnis", "business analyst", "analis bisnis", "business process", "proses bisnis", "gap analysis", "analisis operasional"],
+    "skill:data_analysis": [
+        "data analysis",
+        "analisis data",
+        "analisa data",
+        "data analyst",
+        "analythical thinking",
+        "analytical thinking",
+        "spss",
+        "r studio",
+        "rstudio",
+        "stata",
+        "warppls",
+        "olah data",
+        "regresi",
+        "kuantitatif",
+    ],
+    "skill:report_writing": [
+        "penulisan laporan",
+        "report writing",
+        "laporan bisnis",
+        "rekomendasi bisnis",
+        "laporan keuangan",
+        "menyusun laporan",
+        "membuat laporan",
+        "laporan",
+        "reporting",
+    ],
+    "skill:presentation": [
+        "presentasi",
+        "presentation",
+        "public speaking",
+        "pitch deck",
+        "slide",
+        "powerpoint",
+        "komunikasi",
+        "presentations skill",
+    ],
+    "skill:business_analysis": [
+        "business analysis",
+        "analisis bisnis",
+        "analisa bisnis",
+        "business analyst",
+        "analis bisnis",
+        "business process",
+        "proses bisnis",
+        "gap analysis",
+        "analisis operasional",
+    ],
     "skill:cash_flow_projection": ["cash flow", "arus kas", "proyeksi arus kas", "laporan arus kas", "cash management"],
     "skill:npv": ["npv", "net present value"],
     "skill:irr": ["irr", "internal rate of return"],
     "skill:sensitivity_analysis": ["analisis sensitivitas", "sensitivity analysis"],
-    "skill:investment_analysis": ["analisis investasi", "investment analysis", "analisis kelayakan investasi", "investasi", "investment", "kelayakan investasi"],
+    "skill:investment_analysis": [
+        "analisis investasi",
+        "investment analysis",
+        "analisis kelayakan investasi",
+        "investasi",
+        "investment",
+        "kelayakan investasi",
+    ],
     "skill:market_research": ["market research", "riset pasar", "penelitian pasar", "analisis pasar", "survei pasar"],
-    "skill:industry_analysis": ["analisis industri", "industry analysis", "competitive analysis", "analisis kompetitor", "analisis persaingan"],
-    "skill:feasibility_study": ["feasibility study", "studi kelayakan", "kelayakan bisnis", "kelayakan proyek", "analisis kelayakan"],
-    "skill:strategic_planning": ["strategic planning", "perencanaan strategis", "perencanaan strategi", "business plan", "rencana bisnis", "swot", "pestel", "business model canvas", "strategi bisnis"],
+    "skill:industry_analysis": [
+        "analisis industri",
+        "industry analysis",
+        "competitive analysis",
+        "analisis kompetitor",
+        "analisis persaingan",
+    ],
+    "skill:feasibility_study": [
+        "feasibility study",
+        "studi kelayakan",
+        "kelayakan bisnis",
+        "kelayakan proyek",
+        "analisis kelayakan",
+    ],
+    "skill:strategic_planning": [
+        "strategic planning",
+        "perencanaan strategis",
+        "perencanaan strategi",
+        "business plan",
+        "rencana bisnis",
+        "swot",
+        "pestel",
+        "business model canvas",
+        "strategi bisnis",
+    ],
     "skill:business_valuation": ["valuasi", "valuation", "business valuation", "valuasi bisnis", "penilaian bisnis"],
     "skill:risk_management": ["manajemen risiko", "risk management", "analisis risiko", "mitigasi risiko"],
     "skill:power_bi": ["power bi", "powerbi", "power-bi"],
     "skill:tableau": ["tableau"],
-    "skill:data_visualization": ["data visualization", "visualisasi data", "dashboard", "tableau", "power bi", "powerbi", "looker", "looker studio", "google data studio", "vosviewer"],
+    "skill:data_visualization": [
+        "data visualization",
+        "visualisasi data",
+        "dashboard",
+        "tableau",
+        "power bi",
+        "powerbi",
+        "looker",
+        "looker studio",
+        "google data studio",
+        "vosviewer",
+    ],
     "skill:sql": ["sql", "mysql", "postgresql", "query", "queries", "database"],
 }
 
@@ -233,15 +424,33 @@ def eval_experience_duration(
 
     if not accepted_rfs:
         concepts = [c.lower() for c in req.get("concepts", [])]
-        if any("civil" in c for c in concepts) or any(term in desc_text for term in ["sipil", "civil", "konstruksi", "lapangan", "proyek sipil", "bangunan"]):
+        if any("civil" in c for c in concepts) or any(
+            term in desc_text for term in ["sipil", "civil", "konstruksi", "lapangan", "proyek sipil", "bangunan"]
+        ):
             accepted_rfs = ["civil_engineering", "engineering"]
-        elif any("hr" in c for c in concepts) or any(term in desc_text for term in ["hr", "human capital", "recruiter", "talent", "payroll"]):
+        elif any("hr" in c for c in concepts) or any(
+            term in desc_text for term in ["hr", "human capital", "recruiter", "talent", "payroll"]
+        ):
             accepted_rfs = ["hr"]
-        elif any("business" in c or "consult" in c or "finance" in c or "financial" in c for c in concepts) or any(term in desc_text for term in ["business analyst", "analis bisnis", "konsultan", "consultant", "analis keuangan", "financial analyst", "keuangan", "investasi"]):
+        elif any("business" in c or "consult" in c or "finance" in c or "financial" in c for c in concepts) or any(
+            term in desc_text
+            for term in [
+                "business analyst",
+                "analis bisnis",
+                "konsultan",
+                "consultant",
+                "analis keuangan",
+                "financial analyst",
+                "keuangan",
+                "investasi",
+            ]
+        ):
             accepted_rfs = ["business_analyst", "financial_analyst", "consultant", "data"]
         elif any("data" in c for c in concepts) or any(term in desc_text for term in ["data", "analyst", "analytics"]):
             accepted_rfs = ["data", "business_analyst"]
-        elif any("qa" in c for c in concepts) or any(term in desc_text for term in ["qa", "tester", "quality assurance"]):
+        elif any("qa" in c for c in concepts) or any(
+            term in desc_text for term in ["qa", "tester", "quality assurance"]
+        ):
             accepted_rfs = ["qa"]
         else:
             accepted_rfs = ["backend", "fullstack"]
@@ -339,9 +548,27 @@ def eval_skill(
         for term in potential:
             t_lower = term.lower()
             if len(t_lower) >= 3 and t_lower not in {
-                "dan", "yang", "atau", "dengan", "untuk", "dalam", "serta", "ke", "di", "dari",
-                "memahami", "mampu", "menguasai", "melakukan", "minimal", "sebagai", "merupakan",
-                "nilai", "tambah", "proyek", "pekerjaan"
+                "dan",
+                "yang",
+                "atau",
+                "dengan",
+                "untuk",
+                "dalam",
+                "serta",
+                "ke",
+                "di",
+                "dari",
+                "memahami",
+                "mampu",
+                "menguasai",
+                "melakukan",
+                "minimal",
+                "sebagai",
+                "merupakan",
+                "nilai",
+                "tambah",
+                "proyek",
+                "pekerjaan",
             }:
                 target_keywords.extend(CONCEPT_ALIASES.get(f"skill:{t_lower}", [t_lower]))
 
@@ -396,9 +623,27 @@ def eval_responsibility(
         for term in potential:
             t_lower = term.lower()
             if len(t_lower) >= 3 and t_lower not in {
-                "dan", "yang", "atau", "dengan", "untuk", "dalam", "serta", "ke", "di", "dari",
-                "memahami", "mampu", "menguasai", "melakukan", "minimal", "sebagai", "merupakan",
-                "nilai", "tambah", "proyek", "pekerjaan"
+                "dan",
+                "yang",
+                "atau",
+                "dengan",
+                "untuk",
+                "dalam",
+                "serta",
+                "ke",
+                "di",
+                "dari",
+                "memahami",
+                "mampu",
+                "menguasai",
+                "melakukan",
+                "minimal",
+                "sebagai",
+                "merupakan",
+                "nilai",
+                "tambah",
+                "proyek",
+                "pekerjaan",
             }:
                 target_kws.extend(CONCEPT_ALIASES.get(f"skill:{t_lower}", [t_lower]))
 
@@ -524,21 +769,74 @@ def eval_education(
     strong_fields = [f.lower() for f in params.get("strong_fields", [])]
     if not strong_fields:
         if any("civil" in c for c in concepts) or any(term in desc_text for term in ["sipil", "civil", "bangunan"]):
-            strong_fields = ["teknik sipil", "civil engineering", "teknik bangunan", "sarjana terapan teknik sipil", "sipil"]
+            strong_fields = [
+                "teknik sipil",
+                "civil engineering",
+                "teknik bangunan",
+                "sarjana terapan teknik sipil",
+                "sipil",
+            ]
         elif any(term in desc_text for term in ["informatika", "komputer", "software", "cs"]):
-            strong_fields = ["teknik informatika", "ilmu komputer", "sistem informasi", "computer science", "informatika", "computer"]
+            strong_fields = [
+                "teknik informatika",
+                "ilmu komputer",
+                "sistem informasi",
+                "computer science",
+                "informatika",
+                "computer",
+            ]
         elif any(term in desc_text for term in ["hr", "psikologi", "sdm"]):
             strong_fields = ["psikologi", "manajemen", "hukum"]
-        elif any(term in desc_text for term in ["manajemen", "akuntansi", "ekonomi", "bisnis", "industri", "keuangan", "statistika"]) or any(c in ["field:management", "field:accounting", "field:economics", "field:industrial_engineering", "field:business"] for c in concepts):
+        elif any(
+            term in desc_text
+            for term in ["manajemen", "akuntansi", "ekonomi", "bisnis", "industri", "keuangan", "statistika"]
+        ) or any(
+            c
+            in [
+                "field:management",
+                "field:accounting",
+                "field:economics",
+                "field:industrial_engineering",
+                "field:business",
+            ]
+            for c in concepts
+        ):
             strong_fields = [
-                "manajemen", "management", "akuntansi", "accounting", "ekonomi", "economics",
-                "teknik industri", "industrial engineering", "bisnis", "business", "administrasi bisnis",
-                "business administration", "keuangan", "finance", "statistika", "statistics",
-                "agribisnis", "agribusiness", "matematika", "mathematics", "hukum ekonomi syariah",
-                "sharia accounting", "digital business", "s.e", "s.stat", "mba",
+                "manajemen",
+                "management",
+                "akuntansi",
+                "accounting",
+                "ekonomi",
+                "economics",
+                "teknik industri",
+                "industrial engineering",
+                "bisnis",
+                "business",
+                "administrasi bisnis",
+                "business administration",
+                "keuangan",
+                "finance",
+                "statistika",
+                "statistics",
+                "agribisnis",
+                "agribusiness",
+                "matematika",
+                "mathematics",
+                "hukum ekonomi syariah",
+                "sharia accounting",
+                "digital business",
+                "s.e",
+                "s.stat",
+                "mba",
             ]
             partial_fields = [
-                "hukum", "hubungan internasional", "international relations", "administrasi", "sains", "teknik", "sosial",
+                "hukum",
+                "hubungan internasional",
+                "international relations",
+                "administrasi",
+                "sains",
+                "teknik",
+                "sosial",
             ]
         else:
             strong_fields = [
@@ -554,7 +852,13 @@ def eval_education(
                 "civil engineering",
             ]
 
-    partial_fields = [f.lower() for f in params.get("partial_fields", ["teknik komputer", "matematika", "rekayasa", "arsitektur", "teknik pengelasan", "welding"])]
+    partial_fields = [
+        f.lower()
+        for f in params.get(
+            "partial_fields",
+            ["teknik komputer", "matematika", "rekayasa", "arsitektur", "teknik pengelasan", "welding"],
+        )
+    ]
 
     level_rank = {"SMA": 1, "SMK": 1, "D3": 2, "D4": 3, "S1": 3, "S2": 4, "S3": 5}
     min_r = level_rank.get(min_level, 3)
@@ -594,7 +898,9 @@ def eval_education(
 
     if state == "NOT_DEMONSTRATED":
         summary_comb = f"{profile.get('summary', '')} {profile.get('headline', '')}".lower()
-        if any(f in summary_comb for f in strong_fields) and any(lvl.lower() in summary_comb for lvl in ["s1", "s2", "sarjana", "bachelor", "master", "magister"]):
+        if any(f in summary_comb for f in strong_fields) and any(
+            lvl.lower() in summary_comb for lvl in ["s1", "s2", "sarjana", "bachelor", "master", "magister"]
+        ):
             evidence.append({"quote": summary_comb[:100], "context": "summary", "verified": True})
             return "STRONG", 0.90, {}, evidence, []
         elif any(f in summary_comb for f in partial_fields):
@@ -614,25 +920,23 @@ def eval_certification(
     cert_certs = list(profile.get("certifications", []))
     # Also check candidate skills list which may contain certification names
     for sk in profile.get("skills", []):
-        if any(term in sk.lower() for term in ["k3", "sertifikat", "certificate", "competence", "kompetensi", "ahli", "bnsp", "inspektur"]):
+        if any(
+            term in sk.lower()
+            for term in ["k3", "sertifikat", "certificate", "competence", "kompetensi", "ahli", "bnsp", "inspektur"]
+        ):
             cert_certs.append(sk)
 
     evidence = []
     for c in cert_certs:
         c_lower = c.lower()
         if (
-            "cert:cloud" in concepts
-            or "cert:aws" in concepts
-            or "cert:gcp" in concepts
-            or "cloud" in desc_text
+            "cert:cloud" in concepts or "cert:aws" in concepts or "cert:gcp" in concepts or "cloud" in desc_text
         ) and any(term in c_lower for term in ["aws certified", "google cloud", "azure", "cloud developer"]):
             evidence.append({"quote": c, "context": "certification", "verified": True})
             return "STRONG", 0.95, {}, evidence, []
-        if (
-            "cert:hr" in concepts
-            or "hr" in desc_text
-            or "bnsp" in desc_text
-        ) and any(term in c_lower for term in ["human capital", "bnsp", "chrp", "hr"]):
+        if ("cert:hr" in concepts or "hr" in desc_text or "bnsp" in desc_text) and any(
+            term in c_lower for term in ["human capital", "bnsp", "chrp", "hr"]
+        ):
             evidence.append({"quote": c, "context": "certification", "verified": True})
             return "STRONG", 0.95, {}, evidence, []
         if (
@@ -640,7 +944,21 @@ def eval_certification(
             or "cert:skt" in concepts
             or "cert:k3" in concepts
             or any(term in desc_text for term in ["ska", "skt", "k3", "konstruksi", "inspektur", "keselamatan"])
-        ) and any(term in c_lower for term in ["ska", "skt", "k3", "keselamatan", "hse", "inspektur", "ahli k3", "kompetensi", "bnsp", "bimtek"]):
+        ) and any(
+            term in c_lower
+            for term in [
+                "ska",
+                "skt",
+                "k3",
+                "keselamatan",
+                "hse",
+                "inspektur",
+                "ahli k3",
+                "kompetensi",
+                "bnsp",
+                "bimtek",
+            ]
+        ):
             evidence.append({"quote": c, "context": "certification", "verified": True})
             return "STRONG", 0.95, {}, evidence, []
 

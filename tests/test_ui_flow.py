@@ -163,4 +163,3 @@ def test_file_input_and_upload_dropzone(static_server):
         assert page.is_visible("text=S1_senior_backend_id.pdf")
 
         browser.close()
-

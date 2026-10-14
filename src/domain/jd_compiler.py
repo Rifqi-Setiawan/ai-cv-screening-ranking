@@ -116,7 +116,9 @@ def compile_jd_rule_based(jd_text: str) -> list[dict[str, Any]]:
         if not matched and (orig_line.startswith(("-", "*", "•")) or re.match(r"^\d+[\.\)]", orig_line)):
             lower = line.lower()
             is_exp = "tahun" in lower or "pengalaman" in lower or "experience" in lower
-            is_edu = any(k in lower for k in ["s1", "s2", "d3", "gelar", "pendidikan", "degree", "sertifikasi", "certified"])
+            is_edu = any(
+                k in lower for k in ["s1", "s2", "d3", "gelar", "pendidikan", "degree", "sertifikasi", "certified"]
+            )
             cat = "EXPERIENCE" if is_exp else ("EDUCATION_CERT" if is_edu else "HARD_SKILLS")
             knd = "EXPERIENCE_DURATION" if is_exp else ("EDUCATION" if is_edu else "SKILL")
             imp = "MUST_HAVE" if ("wajib" in lower or "must" in lower or req_idx <= 2) else "STRONG_PREFERENCE"

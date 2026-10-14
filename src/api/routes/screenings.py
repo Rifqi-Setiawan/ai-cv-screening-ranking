@@ -190,7 +190,9 @@ async def trigger_screening_run(
             strong_count = sum(1 for v in states_map.values() if v == "STRONG")
 
             # Ensure candidate exists in candidates table
-            await cur.execute("SELECT id FROM candidates WHERE id = %s AND tenant_id = %s", (cand_id, current_user.tenant_id))
+            await cur.execute(
+                "SELECT id FROM candidates WHERE id = %s AND tenant_id = %s", (cand_id, current_user.tenant_id)
+            )
             if not await cur.fetchone():
                 c_code = f"C-{str(uuid.uuid4())[:8]}"
                 await cur.execute(
@@ -237,7 +239,9 @@ async def trigger_screening_run(
             s_res = c_data["score_res"]
 
             # Ensure candidate record exists in `candidates` table before inserting score
-            await cur.execute("SELECT id FROM candidates WHERE id = %s AND tenant_id = %s", (cv_id_val, current_user.tenant_id))
+            await cur.execute(
+                "SELECT id FROM candidates WHERE id = %s AND tenant_id = %s", (cv_id_val, current_user.tenant_id)
+            )
             if not await cur.fetchone():
                 await cur.execute("SELECT nextval('candidate_code_seq') as seq")
                 seq_row = await cur.fetchone()
@@ -608,11 +612,16 @@ async def export_for_evaluator(
         cur = conn.cursor()
         await get_job_for_tenant(cur, job_id, current_user.tenant_id)
 
-        await cur.execute("SELECT external_ref as code FROM jobs WHERE id = %s AND tenant_id = %s", (job_id, current_user.tenant_id))
+        await cur.execute(
+            "SELECT external_ref as code FROM jobs WHERE id = %s AND tenant_id = %s", (job_id, current_user.tenant_id)
+        )
         job_row = await cur.fetchone()
         job_code = job_row["code"] if job_row and job_row["code"] else "JD-01"
 
-        await cur.execute("SELECT as_of FROM screening_runs WHERE id = %s AND job_id = %s AND tenant_id = %s", (run_id, job_id, current_user.tenant_id))
+        await cur.execute(
+            "SELECT as_of FROM screening_runs WHERE id = %s AND job_id = %s AND tenant_id = %s",
+            (run_id, job_id, current_user.tenant_id),
+        )
         run_row = await cur.fetchone()
         if not run_row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screening run not found")

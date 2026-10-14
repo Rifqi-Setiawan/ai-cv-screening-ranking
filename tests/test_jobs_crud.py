@@ -1,6 +1,6 @@
 import pytest
-import uuid
 from httpx import ASGITransport, AsyncClient
+
 from src.api.main import app
 from src.domain.auth import create_access_token
 
@@ -8,7 +8,11 @@ from src.domain.auth import create_access_token
 @pytest.mark.asyncio
 async def test_job_update_rename_and_delete():
     token = create_access_token(
-        data={"sub": "00000000-0000-0000-0000-000000000001", "role": "RECRUITER", "tenant_id": "00000000-0000-0000-0000-000000000001"}
+        data={
+            "sub": "00000000-0000-0000-0000-000000000001",
+            "role": "RECRUITER",
+            "tenant_id": "00000000-0000-0000-0000-000000000001",
+        }
     )
     headers = {"Authorization": f"Bearer {token}"}
 

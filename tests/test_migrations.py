@@ -1,8 +1,7 @@
 import os
 import subprocess
+
 import psycopg
-import pytest
-from src.infrastructure.config import settings
 
 
 def test_reset_dev_db_script_refuses_without_confirm():
@@ -31,7 +30,9 @@ def test_alembic_upgrade_on_isolated_db():
         cur.execute("CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pgcrypto;")
     admin_test_conn.close()
 
-    test_db_url = f"postgresql://cv_screening_user:4ql2MmOgXcZ9p9LPeNsP8JkMe7stZFnf6sAbmQxG1_c@127.0.0.1:5432/{test_db_name}"
+    test_db_url = (
+        f"postgresql://cv_screening_user:4ql2MmOgXcZ9p9LPeNsP8JkMe7stZFnf6sAbmQxG1_c@127.0.0.1:5432/{test_db_name}"
+    )
 
     try:
         # 2. Run alembic upgrade head on this clean DB

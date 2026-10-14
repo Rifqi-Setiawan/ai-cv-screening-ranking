@@ -1,5 +1,6 @@
 import httpx
 import pytest
+
 from src.infrastructure.config import settings
 
 
