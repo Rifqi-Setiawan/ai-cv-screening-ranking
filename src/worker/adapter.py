@@ -449,6 +449,61 @@ def strip_hidden_pdf_spans(content: bytes) -> bytes:
         return content
 
 
+def sanitize_extracted_name(name: str | None, full_text: str, filename: str) -> str | None:
+    bad_pats = [
+        r"hiring\s+manager",
+        r"^hal\s*:",
+        r"lamaran",
+        r"curriculum\s+vitae",
+        r"^resume",
+        r"job\s+application",
+        r"application\s+letter",
+        r"kepada\s+yth",
+    ]
+    raw_clean = (name or "").strip()
+    is_bad = not raw_clean or any(re.search(p, raw_clean, re.IGNORECASE) for p in bad_pats)
+
+    if raw_clean and not is_bad:
+        parts = re.split(r"\s{2,}|\n", raw_clean)
+        if len(parts) >= 2:
+            longest = max(parts, key=len).strip()
+            if len(longest.split()) >= 2:
+                raw_clean = longest
+        return re.sub(r"\s+", " ", raw_clean)
+
+    # 1. Cover letter self-intro: e.g. 'I am, Pijar Sulthan Muhammad, excited to apply'
+    m_intro = re.search(
+        r"(?:I\s+am|saya),?\s+([A-Z][A-Za-z\s]{2,35})(?:,|\s+excited|\s+bermaksud|\.|\s+ingin)",
+        full_text,
+    )
+    if m_intro:
+        cand = m_intro.group(1).strip()
+        if len(cand.split()) >= 2 and not any(re.search(p, cand, re.IGNORECASE) for p in bad_pats):
+            return re.sub(r"\s+", " ", cand)
+
+    # 2. Uppercase header block from first lines of full_text
+    for line in full_text.splitlines()[:60]:
+        line_clean = line.strip()
+        if (
+            line_clean.isupper()
+            and 2 <= len(line_clean.split()) <= 4
+            and not any(re.search(p, line_clean, re.IGNORECASE) for p in bad_pats)
+            and not any(
+                w in line_clean
+                for w in ["EDUCATION", "SKILLS", "EXPERIENCE", "SUMMARY", "CURRICULUM", "VITAE"]
+            )
+        ):
+            return line_clean.title()
+
+    # 3. Fallback from filename: e.g. '2404_Pijar Sulthan Muhammad_CV...'
+    fname_stem = Path(filename).stem
+    parts = fname_stem.split("_")
+    if len(parts) >= 2 and parts[0].isdigit():
+        return parts[1].strip()
+
+    return raw_clean or None
+
+
 def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
     if filename.lower().endswith(".pdf"):
         content = strip_hidden_pdf_spans(content)
@@ -465,7 +520,8 @@ def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
     ed_text = "\n".join(sec_map.get("education", []))
     sum_text = "\n".join(sec_map.get("summary", []))
     prj_text = "\n".join(sec_map.get("projects", []))
-    org_text = "\n".join(sec_map.get("organizations", []))
+    org_text = "\n".join(sec_map.get("organizations", []) + sec_map.get("training", []))
+    ach_text = "\n".join(sec_map.get("awards", []) + sec_map.get("achievements", []))
 
     full_text = "\n".join(s.get("text", "") for s in raw.get("sections", []))
 
@@ -570,7 +626,7 @@ def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
         other_personal["marital_status"] = m_mar.group(1).strip()
 
     identity = {
-        "full_name": raw.get("name"),
+        "full_name": sanitize_extracted_name(raw.get("name"), full_text, filename),
         "email": emails[0] if emails else None,
         "phone": phones[0] if phones else None,
         "location_raw": contact.get("location"),
@@ -600,6 +656,18 @@ def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
             }
         )
 
+    achievements = []
+    if ach_text:
+        for idx, block in enumerate([b.strip() for b in ach_text.split("\n\n") if b.strip()]):
+            achievements.append(
+                {
+                    "entry_id": f"ach_{idx+1}",
+                    "title": block.splitlines()[0] if block else "Achievement",
+                    "text": block,
+                    "source": find_provenance(full_text, block[:40]),
+                }
+            )
+
     profile = {
         "document_id": filename,
         "extractor": {
@@ -611,13 +679,14 @@ def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
         "language": ["id"],
         "identity": identity,
         "headline": raw.get("headline"),
-        "summary": sum_text,
+        "summary": sum_text or raw.get("summary"),
+        "skills": skills,
         "experiences": experiences,
         "education": education,
         "certifications": certifications,
-        "skills": skills,
         "projects": projects,
         "organizations": organizations,
+        "achievements": achievements,
         "quality": {
             "confidence": raw.get("meta", {}).get("confidence", 1.0),
             "warnings": raw.get("meta", {}).get("warnings", []),

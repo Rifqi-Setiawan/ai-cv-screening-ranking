@@ -172,6 +172,20 @@ def extract_identity_and_redact(
                 }
             )
 
+    # Achievements
+    matching["achievements"] = []
+    for ach in raw_profile.get("achievements", []):
+        ach_text = redact_text(ach.get("text", "") or ach.get("title", ""), name, emails, phones)
+        matching["achievements"].append({**ach, "title": ach_text, "text": ach_text})
+        if ach_text:
+            chunks.append(
+                {
+                    "kind": "achievement",
+                    "entry_ref": ach.get("entry_id"),
+                    "text_redacted": ach_text,
+                }
+            )
+
     # Education
     for edu in raw_profile.get("education", []):
         edu_text = f"{edu.get('level', '')} {edu.get('degree_raw', '')} {edu.get('institution', '')}".strip()

@@ -995,3 +995,112 @@ field:business_finance:
   - sains
   - teknik
   - sosial
+skill:business_process_modeling:
+  label: Business Process Modeling
+  type: skill
+  aliases:
+  - bpmn
+  - business process modeling
+  - pemodelan proses bisnis
+  - pemodelan bisnis
+  - business process
+  - proses bisnis
+  - way of working
+skill:sop_development:
+  label: SOP Development
+  type: skill
+  aliases:
+  - sop
+  - sops
+  - (sops)
+  - standard operating procedure
+  - standard operating procedures
+  - prosedur operasional standar
+  - penyusunan sop
+  - work instructions
+  - procedures
+skill:workflow_analysis:
+  label: Workflow Analysis
+  type: skill
+  aliases:
+  - workflow
+  - workflow analysis
+  - alur kerja
+  - analisis alur kerja
+  - process analysis
+skill:dcf:
+  label: DCF
+  type: skill
+  aliases:
+  - dcf
+  - discounted cash flow
+skill:npv:
+  label: NPV
+  type: skill
+  aliases:
+  - npv
+  - net present value
+skill:irr:
+  label: IRR
+  type: skill
+  aliases:
+  - irr
+  - internal rate of return
+skill:swot_analysis:
+  label: SWOT Analysis
+  type: skill
+  aliases:
+  - swot
+  - swot analysis
+  - analisis swot
+skill:pestel_analysis:
+  label: PESTEL Analysis
+  type: skill
+  aliases:
+  - pestel
+  - pestel analysis
+  - pestle
+  - pestle analysis
+skill:looker_studio:
+  label: Looker Studio
+  type: tool
+  aliases:
+  - looker studio
+  - looker
+  - google data studio
+  - datastudio
+skill:stata:
+  label: Stata
+  type: tool
+  aliases:
+  - stata
+skill:team_leadership:
+  label: Team Leadership
+  type: skill
+  aliases:
+  - team leadership
+  - head of
+  - team lead
+  - lead a team
+  - memimpin tim
+  - kepemimpinan
+skill:project_coordination:
+  label: Project Coordination
+  type: skill
+  aliases:
+  - project coordination
+  - project coordinator
+  - project manager
+  - koordinasi proyek
+skill:business_competition:
+  label: Business Competition Achievement
+  type: skill
+  aliases:
+  - olympiad
+  - olimpiade
+  - 3rd place
+  - best presentation
+  - juara
+  - competition
+  - kompetisi bisnis
+

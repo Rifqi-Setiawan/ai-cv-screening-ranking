@@ -508,47 +508,96 @@ def eval_achievement(
     profile: dict[str, Any],
     req: dict[str, Any],
 ) -> tuple[str, float, dict[str, Any], list[dict[str, Any]], list[str]]:
-    """Evaluates ACHIEVEMENT requirements (quantified metrics in relevant domain)."""
+    """Evaluates ACHIEVEMENT requirements (quantified metrics in relevant domain or competition awards)."""
     concepts = [c.lower() for c in req.get("concepts", [])]
     num_pat = re.compile(
         r"\b\d+(?:[.,]\d+)?\s*(?:%|ms|detik|menit|jam|hari|juta|k|m|ribu|x\s*lipat|posisi|karyawan|orang|akun|\+)",
         re.IGNORECASE,
     )
+    award_pat = re.compile(
+        r"\b(?:juara|winner|place|terbaik|best|olympiad|olimpiade|penghargaan|award|competition|kompetisi)\b",
+        re.IGNORECASE,
+    )
 
     is_hr_achievement = "achievement:quantified_hr" in concepts
+    is_biz_comp = any(
+        c in concepts
+        for c in (
+            "achievement:business_competition",
+            "skill:business_competition",
+            "achievement:competition",
+            "competition",
+        )
+    )
     evidence = []
     has_tech_num = False
     has_hr_num = False
+    has_biz_num = False
+    has_comp_award = False
     has_unrelated_num = False
 
+    # 1. Inspect explicit achievements section
+    for ach in profile.get("achievements", []):
+        txt = ach.get("text", "") or ach.get("title", "")
+        if award_pat.search(txt) or num_pat.search(txt):
+            has_comp_award = True
+            evidence.append({"quote": txt[:120], "context": "achievements", "verified": True})
+
+    # 2. Inspect experiences bullets
     for exp in profile.get("experiences", []):
         bullet_text = " ".join(b.get("text", "") for b in exp.get("bullets", []))
         rf = classify_role_family(exp.get("title", ""), bullet_text)
         for b in exp.get("bullets", []):
             txt = b.get("text", "")
+            if award_pat.search(txt):
+                has_comp_award = True
+                evidence.append({"quote": txt[:120], "context": "experience", "verified": True})
             if num_pat.search(txt):
                 if rf == "hr":
                     has_hr_num = True
-                    evidence.append({"quote": txt, "context": "experience", "verified": True})
+                    evidence.append({"quote": txt[:120], "context": "experience", "verified": True})
                 elif rf in ("backend", "fullstack", "devops"):
                     has_tech_num = True
-                    evidence.append({"quote": txt, "context": "experience", "verified": True})
+                    evidence.append({"quote": txt[:120], "context": "experience", "verified": True})
+                elif rf in ("business_analyst", "financial_analyst", "consultant", "data"):
+                    has_biz_num = True
+                    evidence.append({"quote": txt[:120], "context": "experience", "verified": True})
                 else:
                     has_unrelated_num = True
 
+    # 3. Inspect projects
     for prj in profile.get("projects", []):
         txt = prj.get("text", "")
+        if award_pat.search(txt):
+            has_comp_award = True
+            evidence.append({"quote": txt[:100], "context": "project", "verified": True})
         if num_pat.search(txt):
-            has_unrelated_num = True
+            has_biz_num = True
             evidence.append({"quote": txt[:100], "context": "project", "verified": True})
 
+    if is_biz_comp and (has_comp_award or has_biz_num):
+        return "STRONG", 0.95, {}, evidence, []
+    if has_comp_award:
+        return "STRONG", 0.95, {}, evidence, []
     if is_hr_achievement and has_hr_num:
         return "STRONG", 0.95, {}, evidence, []
     if not is_hr_achievement and has_tech_num:
         return "STRONG", 0.95, {}, evidence, []
+    if has_biz_num:
+        return "STRONG", 0.95, {}, evidence, []
     if has_unrelated_num:
         has_tech_rf = any(
-            classify_role_family(e.get("title", "")) in ("backend", "fullstack", "data", "qa", "devops")
+            classify_role_family(e.get("title", ""))
+            in (
+                "backend",
+                "fullstack",
+                "data",
+                "qa",
+                "devops",
+                "business_analyst",
+                "financial_analyst",
+                "consultant",
+            )
             for e in profile.get("experiences", [])
         )
         if has_tech_rf and not is_hr_achievement:
