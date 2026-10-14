@@ -279,16 +279,18 @@ async def trigger_screening_run(
             bnd = s_res.band if s_res else "R"
             rec = s_res.recommendation if s_res else "MANUAL_CHECK"
             cat_b = s_res.category_breakdown if s_res else {}
+            cov = s_res.coverage if s_res else 1.0
+            cand_flags = list(set(c_data["flags"] + (s_res.flags if s_res else [])))
 
             await cur.execute(
                 """
                 INSERT INTO candidate_scores (
                     run_id, candidate_id, tenant_id, document_id, rank, band,
-                    raw_score, final_score, capped, recommendation, category_scores, flags
+                    raw_score, final_score, capped, recommendation, category_scores, flags, coverage
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, false, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, false, %s, %s, %s, %s)
                 ON CONFLICT (run_id, candidate_id) DO UPDATE SET
-                    rank = EXCLUDED.rank, final_score = EXCLUDED.final_score
+                    rank = EXCLUDED.rank, final_score = EXCLUDED.final_score, coverage = EXCLUDED.coverage
                 """,
                 (
                     run_id,
@@ -301,7 +303,8 @@ async def trigger_screening_run(
                     fin_sc,
                     rec,
                     json.dumps(cat_b),
-                    c_data["flags"],
+                    cand_flags,
+                    cov,
                 ),
             )
 

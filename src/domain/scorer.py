@@ -23,6 +23,8 @@ class ScoreResult:
     color: str
     category_scores: dict[str, float] = field(default_factory=dict)
     must_have_not_strong: list[str] = field(default_factory=list)
+    coverage: float = 1.0
+    flags: list[str] = field(default_factory=list)
 
     @property
     def category_breakdown(self) -> dict[str, float]:
@@ -95,8 +97,17 @@ def score(states: dict[str, str], requirement_set: dict[str, Any]) -> ScoreResul
     else:
         rec = "LOW_PRIORITY"
 
+    total_weight = sum(float(r["weight"]) for r in reqs) or 1.0
+    coverage = round(den / total_weight, 2)
+    score_flags = []
+
+    if coverage < 0.6:
+        score_flags.append("LOW_COVERAGE")
+        if rec == "SHORTLIST":
+            rec = "MANUAL_CHECK"
+
     color = "green" if final >= 75 else ("yellow" if final >= 50 else "red")
-    return ScoreResult(raw, final, band, capped, rec, color, cats, must_not_strong)
+    return ScoreResult(raw, final, band, capped, rec, color, cats, must_not_strong, coverage, score_flags)
 
 
 def tie_break_key(candidate_id: str, run_id: str) -> str:
