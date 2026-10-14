@@ -8,6 +8,7 @@ from typing import Any
 
 from src.domain.policy_linter import lint_text
 from src.infrastructure.gateway import gateway
+from src.infrastructure.logging import logger
 
 DEFAULT_CATEGORY_WEIGHTS = {
     "EXPERIENCE": 40,
@@ -142,10 +143,18 @@ def compile_jd_rule_based(jd_text: str) -> list[dict[str, Any]]:
     return requirements
 
 
+EMAIL_REGEX = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
+PHONE_REGEX = re.compile(r"(?:\+62|62|08)[0-9\s-]{8,15}")
+
+
 async def compile_job_requirements(jd_text: str, tenant_id: uuid.UUID | None = None) -> dict[str, Any]:
     """Compiles Job Description into structured requirement set using 9Router with deterministic fallback."""
     # Check overall JD text for prohibited criteria
     overall_lint = lint_text(jd_text)
+
+    # Sanitize any recruiter contact details from JD text before sending to LLM
+    clean_jd_text = EMAIL_REGEX.sub("[KONTAK_HR]", jd_text)
+    clean_jd_text = PHONE_REGEX.sub("[KONTAK_HR]", clean_jd_text)
 
     # Attempt LLM compilation via 9Router
     prompt = (
@@ -159,15 +168,19 @@ async def compile_job_requirements(jd_text: str, tenant_id: uuid.UUID | None = N
         "- weight (angka 1-30)\n"
         "- concepts (array concept_id seperti role_family:backend, skill:python, skill:postgresql, skill:docker)\n"
         "- source_text (kalimat asli dari JD)\n\n"
-        f"Teks Job Description:\n{jd_text}"
+        f"Teks Job Description:\n{clean_jd_text}"
     )
 
-    llm_res = await gateway.call_chat(
-        messages=[{"role": "user", "content": prompt}],
-        task="jd_compilation",
-        tenant_id=tenant_id,
-        json_mode=True,
-    )
+    try:
+        llm_res = await gateway.call_chat(
+            messages=[{"role": "user", "content": prompt}],
+            task="jd_compilation",
+            tenant_id=tenant_id,
+            json_mode=True,
+        )
+    except Exception as e:
+        logger.warning(f"LLM compilation failed, falling back to rule-based: {e}")
+        llm_res = None
 
     requirements = []
     req_list = []
