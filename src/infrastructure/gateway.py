@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 import time
 import uuid
 from typing import Any
@@ -24,23 +25,48 @@ class PrivacyViolationError(ValueError):
     pass
 
 
+_key_lock = threading.Lock()
+_cached_api_key: str | None = None
+_cached_key_time: float = 0.0
+
+
+def reset_key_cache() -> None:
+    """Helper for testing to reset cached router key."""
+    global _cached_api_key, _cached_key_time
+    with _key_lock:
+        _cached_api_key = None
+        _cached_key_time = 0.0
+
+
 def resolve_router_key() -> str:
+    global _cached_api_key, _cached_key_time
     if settings.LLM_GATEWAY_KEY:
         return settings.LLM_GATEWAY_KEY
-    db_path = "/srv/apps/9router/data/db/data.sqlite"
-    if os.path.exists(db_path):
-        try:
-            import sqlite3
 
-            with sqlite3.connect(db_path, timeout=2.0) as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT key FROM apiKeys WHERE isActive = 1 LIMIT 1")
-                row = cur.fetchone()
-                if row and row[0]:
-                    return str(row[0])
-        except Exception:
-            pass
-    return "dev-key"
+    now = time.monotonic()
+    with _key_lock:
+        if _cached_api_key is not None and (now - _cached_key_time) < 300:
+            return _cached_api_key
+
+        db_path = "/srv/apps/9router/data/db/data.sqlite"
+        if os.path.exists(db_path):
+            try:
+                import sqlite3
+
+                with sqlite3.connect(db_path, timeout=2.0) as conn:
+                    cur = conn.cursor()
+                    cur.execute("SELECT key FROM apiKeys WHERE isActive = 1 LIMIT 1")
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        _cached_api_key = str(row[0])
+                        _cached_key_time = now
+                        return _cached_api_key
+            except Exception as e:
+                logger.warning(f"Failed to read 9router sqlite: {e}")
+
+        _cached_api_key = "dev-key"
+        _cached_key_time = now
+        return _cached_api_key
 
 
 class ModelGateway:
@@ -50,8 +76,12 @@ class ModelGateway:
         self.model = settings.LLM_MODEL_JD_COMPILER
         self.data_policy = settings.LLM_DATA_POLICY
 
-    def verify_redacted_text(self, text: str) -> None:
-        """Pre-flight safety inspection: blocks requests if raw emails or phones are present."""
+    def verify_redacted_text(self, text: str, task: str = "") -> None:
+        """Pre-flight safety inspection: blocks requests if raw emails or phones are present.
+        For JD compilation, HR recruiter contacts are permitted.
+        """
+        if task == "jd_compilation":
+            return
         if EMAIL_REGEX.search(text):
             raise PrivacyViolationError("Blocked LLM request: raw unredacted email detected in payload.")
         if PHONE_REGEX.search(text):
@@ -69,8 +99,8 @@ class ModelGateway:
             return None
 
         # Concatenate payload for privacy check and hashing
-        combined_prompt = "\n".join(m.get("content", "") for m in messages)
-        self.verify_redacted_text(combined_prompt)
+        combined_prompt = " ".join([m.get("content", "") for m in messages])
+        self.verify_redacted_text(combined_prompt, task=task)
 
         input_hash = hashlib.sha256(combined_prompt.encode()).hexdigest()
         t0 = time.time()
