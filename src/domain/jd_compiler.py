@@ -4,11 +4,38 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Any
+from typing import Any, Literal
+from pydantic import BaseModel, Field, ValidationError
 
 from src.domain.policy_linter import lint_text
 from src.infrastructure.gateway import gateway
 from src.infrastructure.logging import logger
+
+VALID_IMPORTANCE = {"MUST_HAVE", "STRONG_PREFERENCE", "NICE_TO_HAVE"}
+VALID_CATEGORIES = {"EXPERIENCE", "HARD_SKILLS", "EDUCATION_CERT", "ACHIEVEMENT"}
+MUST_HAVE_KEYWORDS = {"wajib", "harus", "must", "required", "minimum", "minimal", "essential"}
+NICE_TO_HAVE_KEYWORDS = {"nilai tambah", "plus", "preferred", "nice to have", "diutamakan", "keuntungan"}
+
+
+class CompiledRequirement(BaseModel):
+    requirement_id: str
+    description: str
+    category: str = "HARD_SKILLS"
+    kind: str = "SKILL"
+    importance: Literal["MUST_HAVE", "STRONG_PREFERENCE", "NICE_TO_HAVE"]
+    weight: float = Field(default=10.0, gt=0)
+    concepts: list[str] = Field(default_factory=list)
+    params: dict[str, Any] = Field(default_factory=dict)
+    source_text: str = ""
+
+
+def determine_importance(line: str, default: str = "STRONG_PREFERENCE") -> str:
+    lower = line.lower()
+    if any(k in lower for k in MUST_HAVE_KEYWORDS):
+        return "MUST_HAVE"
+    if any(k in lower for k in NICE_TO_HAVE_KEYWORDS):
+        return "NICE_TO_HAVE"
+    return default
 
 DEFAULT_CATEGORY_WEIGHTS = {
     "EXPERIENCE": 40,
@@ -89,10 +116,8 @@ def compile_jd_rule_based(jd_text: str) -> list[dict[str, Any]]:
                     break
                 matched_concepts.add(c_key)
 
-                # Importance from section header context
-                importance = default_importance
-                if "wajib" in line.lower() or "must" in line.lower():
-                    importance = "MUST_HAVE"
+                # Importance from line wording
+                importance = determine_importance(line, default_importance)
 
                 lint_res = lint_text(line)
 
@@ -122,7 +147,7 @@ def compile_jd_rule_based(jd_text: str) -> list[dict[str, Any]]:
             )
             cat = "EXPERIENCE" if is_exp else ("EDUCATION_CERT" if is_edu else "HARD_SKILLS")
             knd = "EXPERIENCE_DURATION" if is_exp else ("EDUCATION" if is_edu else "SKILL")
-            imp = "MUST_HAVE" if ("wajib" in lower or "must" in lower or req_idx <= 2) else "STRONG_PREFERENCE"
+            imp = determine_importance(line, "STRONG_PREFERENCE")
             lint_res = lint_text(line)
             requirements.append(
                 {
@@ -189,32 +214,47 @@ async def compile_job_requirements(jd_text: str, tenant_id: uuid.UUID | None = N
     elif isinstance(llm_res, dict) and isinstance(llm_res.get("requirements"), list):
         req_list = llm_res["requirements"]
 
+    validated_reqs = []
     if req_list:
-        for idx, item in enumerate(req_list, 1):
-            desc = item.get("description", "")
-            r_lint = lint_text(desc)
-            concepts = list(item.get("concepts", []))
-            # Augment with canonical concept rules
-            for pat, c_list, _cat, _knd, _imp, _wt in CONCEPT_RULES:
-                if re.search(pat, desc, re.IGNORECASE) or re.search(pat, item.get("source_text", ""), re.IGNORECASE):
-                    for c in c_list:
-                        if c not in concepts:
-                            concepts.append(c)
+        try:
+            for idx, item in enumerate(req_list, 1):
+                raw_imp = str(item.get("importance", "")).upper()
+                if raw_imp not in VALID_IMPORTANCE:
+                    raw_imp = determine_importance(item.get("description", "") or item.get("source_text", ""))
 
-            requirements.append(
-                {
-                    "requirement_id": item.get("requirement_id", f"R{idx}"),
-                    "description": desc,
-                    "category": item.get("category", "HARD_SKILLS"),
-                    "kind": item.get("kind", "SKILL"),
-                    "importance": item.get("importance", "MUST_HAVE"),
-                    "weight": item.get("weight", 10),
-                    "concepts": concepts,
-                    "params": item.get("params", {}),
-                    "source_text": item.get("source_text", desc),
-                    "lint_flags": r_lint["prohibited_flags"] + r_lint["risky_flags"],
-                }
-            )
+                raw_wt = float(item.get("weight") or 10.0)
+                if raw_wt <= 0:
+                    raw_wt = 10.0
+
+                desc = item.get("description", "")
+                r_lint = lint_text(desc)
+                concepts = list(item.get("concepts", []))
+                for pat, c_list, _cat, _knd, _imp, _wt in CONCEPT_RULES:
+                    if re.search(pat, desc, re.IGNORECASE) or re.search(pat, item.get("source_text", ""), re.IGNORECASE):
+                        for c in c_list:
+                            if c not in concepts:
+                                concepts.append(c)
+
+                model = CompiledRequirement(
+                    requirement_id=item.get("requirement_id") or f"R{idx}",
+                    description=desc,
+                    category=item.get("category") if item.get("category") in VALID_CATEGORIES else "HARD_SKILLS",
+                    kind=item.get("kind") or "SKILL",
+                    importance=raw_imp,  # type: ignore[arg-type]
+                    weight=raw_wt,
+                    concepts=concepts,
+                    params=item.get("params") or {},
+                    source_text=item.get("source_text") or desc,
+                )
+                req_dict = model.model_dump()
+                req_dict["lint_flags"] = r_lint["prohibited_flags"] + r_lint["risky_flags"]
+                validated_reqs.append(req_dict)
+        except Exception as e:
+            logger.warning(f"Validation failed for LLM requirements output: {e}, falling back to rule-based.")
+            validated_reqs = []
+
+    if validated_reqs:
+        requirements = validated_reqs
     else:
         # Deterministic rule-based fallback
         requirements = compile_jd_rule_based(jd_text)
