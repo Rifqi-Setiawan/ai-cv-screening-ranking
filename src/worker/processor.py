@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
@@ -107,8 +108,8 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
                 logger.info(f"Document {filename} marked as NEEDS_REVIEW: {san.reasons}")
                 return {"status": "NEEDS_REVIEW", "reasons": san.reasons}
 
-            # 3. Extract Candidate Profile via production adapter
-            raw_profile = extract_candidate_profile(content, filename)
+            # 3. Extract Candidate Profile via production adapter in worker thread
+            raw_profile = await asyncio.to_thread(extract_candidate_profile, content, filename)
             # 4. Separate Identity and Redact Matching Profile
             identity_rec, matching_profile, chunks = extract_identity_and_redact(raw_profile)
 
@@ -182,21 +183,22 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
                 (candidate_id, doc_id, doc["tenant_id"]),
             )
 
-            # 6. Save Identity
-            other_p_bytes = json.dumps(identity_rec["other_personal"]).encode("utf-8")
+            # 6. Save Identity (Encrypted other_personal via pgcrypto)
+            other_p_json = json.dumps(identity_rec["other_personal"])
             await cur.execute(
                 """
                 INSERT INTO candidate_identities (
                     candidate_id, tenant_id, full_name, email, phone, email_hash, phone_hash, location_raw, other_personal
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, pgp_sym_encrypt(%s, %s))
                 ON CONFLICT (candidate_id) DO UPDATE SET
                     full_name = EXCLUDED.full_name,
                     email = EXCLUDED.email,
                     phone = EXCLUDED.phone,
                     email_hash = EXCLUDED.email_hash,
                     phone_hash = EXCLUDED.phone_hash,
-                    location_raw = EXCLUDED.location_raw
+                    location_raw = EXCLUDED.location_raw,
+                    other_personal = EXCLUDED.other_personal
                 """,
                 (
                     candidate_id,
@@ -207,7 +209,8 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
                     email_hash,
                     phone_hash,
                     identity_rec["location_raw"],
-                    other_p_bytes,
+                    other_p_json,
+                    settings.PII_ENCRYPTION_KEY,
                 ),
             )
 
@@ -274,7 +277,7 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
                 INSERT INTO candidate_profiles (
                     id, tenant_id, document_id, profile, matching_profile, full_text_redacted, extractor_version, quality
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, 'cv-extractor-1.0.0', %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (document_id) DO UPDATE SET
                     profile = EXCLUDED.profile,
                     matching_profile = EXCLUDED.matching_profile,
@@ -289,6 +292,7 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
                     json.dumps(raw_profile),
                     json.dumps(matching_profile),
                     full_text_redacted,
+                    f"cv-extractor-{settings.EXTRACTOR_VERSION}",
                     json.dumps({"flags": quality_flags, "confidence": san.is_valid}),
                 ),
             )
@@ -300,27 +304,31 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
 
             # 8. Generate & Insert Profile Chunks with Embeddings
             chunk_texts = [c["text_redacted"] for c in chunks]
-            embeddings = embed_texts(chunk_texts)
+            embeddings = await asyncio.to_thread(embed_texts, chunk_texts)
 
-            for c, emb in zip(chunks, embeddings):
-                c_hash = hashlib.sha256(c["text_redacted"].encode()).hexdigest()
-                await cur.execute(
+            chunk_params = [
+                (
+                    doc["tenant_id"],
+                    profile_id,
+                    c["kind"],
+                    c["entry_ref"],
+                    c["text_redacted"],
+                    hashlib.sha256(c["text_redacted"].encode()).hexdigest(),
+                    emb,
+                    settings.EMBEDDING_MODEL,
+                )
+                for c, emb in zip(chunks, embeddings)
+            ]
+
+            if chunk_params:
+                await cur.executemany(
                     """
                     INSERT INTO profile_chunks (
                         tenant_id, profile_id, kind, entry_ref, text_redacted, chunk_hash, embedding, embedding_model
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    (
-                        doc["tenant_id"],
-                        profile_id,
-                        c["kind"],
-                        c["entry_ref"],
-                        c["text_redacted"],
-                        c_hash,
-                        emb,
-                        settings.EMBEDDING_MODEL,
-                    ),
+                    chunk_params,
                 )
 
             # 9. Link Candidate ID and Mark Document READY
