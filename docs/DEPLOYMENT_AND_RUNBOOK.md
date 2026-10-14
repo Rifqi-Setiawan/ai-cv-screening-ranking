@@ -18,6 +18,29 @@ Dokumen ini berisi prosedur operasional standar (SOP) untuk deployment, pemeliha
 
 ## 2. Prosedur Start, Stop, & Restart Layanan
 
+### Prosedur Deploy / Pembaruan Kode & Skema (Standard SOP):
+Setiap pembaruan production wajib mengikuti urutan:
+1. **Pencadangan Basis Data & Dokumen:**
+   ```bash
+   cd /srv/hermes-control/services/cv-screening
+   ./scripts/backup.sh
+   ```
+2. **Jalankan Migrasi Skema Basis Data (Alembic):**
+   ```bash
+   make migrate
+   # atau: .venv/bin/alembic upgrade head
+   ```
+3. **Restart Layanan Aplikasi & Worker:**
+   ```bash
+   sudo systemctl restart cv-screening-api.service cv-screening-worker.service
+   ```
+4. **Verifikasi Metrik & Log Kesehatan:**
+   ```bash
+   curl -H "Authorization: Bearer $METRICS_TOKEN" http://127.0.0.1:8110/metrics
+   ```
+
+*Catatan Penting Keamanan DB:* Skrip destruktif lama `scripts/migrate.sh` telah diubah menjadi `scripts/reset_dev_db.sh` dan dipasangi penjaga (`CONFIRM_RESET=yes`). Jangan pernah menjalankannya di environment production.
+
 ### Menjalankan Backend Secara Mandiri (Development):
 ```bash
 cd /srv/hermes-control/services/cv-screening

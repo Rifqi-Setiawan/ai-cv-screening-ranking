@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${APP_ENV:-}" == "production" || "${CONFIRM_RESET:-}" != "yes" ]]; then
+  echo "Ditolak: script ini MENGHAPUS database. Set CONFIRM_RESET=yes dan pastikan APP_ENV bukan production."; exit 1
+fi
+
 export LD_LIBRARY_PATH="/srv/apps/hermes/opt/postgresql/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
 
 echo "=== 1. Drop & Recreate Database cv_screening ==="

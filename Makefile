@@ -1,4 +1,4 @@
-.PHONY: test lint typecheck run-api run-worker eval seed clean
+.PHONY: test lint typecheck run-api run-worker eval seed clean migrate
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
@@ -6,6 +6,10 @@ UVICORN = $(VENV)/bin/uvicorn
 PYTEST = $(VENV)/bin/pytest
 RUFF = $(VENV)/bin/ruff
 MYPY = $(VENV)/bin/mypy
+ALEMBIC = $(VENV)/bin/alembic
+
+migrate:
+	$(ALEMBIC) upgrade head
 
 test:
 	PYTHONPATH=. $(PYTEST) -v
