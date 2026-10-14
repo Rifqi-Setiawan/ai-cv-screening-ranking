@@ -13,7 +13,7 @@ from src.infrastructure.database import get_connection
 from src.infrastructure.logging import logger
 from src.worker.adapter import extract_candidate_profile
 from src.worker.embedding import embed_texts
-from src.worker.redaction import extract_identity_and_redact
+from src.worker.redaction import extract_identity_and_redact, redact_text
 from src.worker.sanitizer import sanitize_file
 
 
@@ -111,18 +111,53 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
             # 4. Separate Identity and Redact Matching Profile
             identity_rec, matching_profile, chunks = extract_identity_and_redact(raw_profile)
 
-            # 5. Create Candidate record
-            # Check if candidate already linked to this document
-            if doc.get("candidate_id"):
-                candidate_id = doc["candidate_id"]
-                await cur.execute("SELECT candidate_code FROM candidates WHERE id = %s", (candidate_id,))
+            # 5. Determine or Deduplicate Candidate Record
+            candidate_id = doc.get("candidate_id")
+            candidate_code = None
+
+            email_val = (identity_rec.get("email") or "").strip().lower() or None
+            phone_val = (identity_rec.get("phone") or "").strip() or None
+            email_hash = hashlib.sha256(email_val.encode()).hexdigest() if email_val else None
+            phone_hash = hashlib.sha256(phone_val.encode()).hexdigest() if phone_val else None
+
+            if not candidate_id and (email_val or phone_val or email_hash or phone_hash):
+                # Search if candidate identity already exists for this tenant
+                clauses = []
+                params: list[Any] = [doc["tenant_id"]]
+                if email_val:
+                    clauses.append("ci.email = %s")
+                    params.append(email_val)
+                if email_hash:
+                    clauses.append("ci.email_hash = %s")
+                    params.append(email_hash)
+                if phone_val:
+                    clauses.append("ci.phone = %s")
+                    params.append(phone_val)
+                if phone_hash:
+                    clauses.append("ci.phone_hash = %s")
+                    params.append(phone_hash)
+
+                if clauses:
+                    query = f"""
+                        SELECT ci.candidate_id, c.candidate_code
+                        FROM candidate_identities ci
+                        JOIN candidates c ON c.id = ci.candidate_id AND c.tenant_id = ci.tenant_id
+                        WHERE ci.tenant_id = %s AND ({" OR ".join(clauses)})
+                        LIMIT 1
+                    """
+                    await cur.execute(query, tuple(params))
+                    existing_cand = await cur.fetchone()
+                    if existing_cand:
+                        candidate_id = existing_cand["candidate_id"]
+                        candidate_code = existing_cand["candidate_code"]
+
+            if candidate_id and not candidate_code:
+                await cur.execute("SELECT candidate_code FROM candidates WHERE id = %s AND tenant_id = %s", (candidate_id, doc["tenant_id"]))
                 cand_row = await cur.fetchone()
                 candidate_code = cand_row["candidate_code"] if cand_row else None
-            else:
-                candidate_id = uuid.uuid4()
-                candidate_code = None
 
-            if not candidate_code:
+            if not candidate_id:
+                candidate_id = uuid.uuid4()
                 await cur.execute("SELECT nextval('candidate_code_seq') as seq")
                 seq_row = await cur.fetchone()
                 seq_val = seq_row["seq"] if seq_row and seq_row["seq"] else 1
@@ -137,39 +172,60 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
                     (candidate_id, doc["tenant_id"], candidate_code),
                 )
 
+            # Link document to candidate_id
+            await cur.execute(
+                "UPDATE documents SET candidate_id = %s WHERE id = %s AND tenant_id = %s",
+                (candidate_id, doc_id, doc["tenant_id"]),
+            )
+
             # 6. Save Identity
             other_p_bytes = json.dumps(identity_rec["other_personal"]).encode("utf-8")
             await cur.execute(
                 """
                 INSERT INTO candidate_identities (
-                    candidate_id, tenant_id, full_name, email, phone, location_raw, other_personal
+                    candidate_id, tenant_id, full_name, email, phone, email_hash, phone_hash, location_raw, other_personal
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (candidate_id) DO UPDATE SET
-                    full_name = EXCLUDED.full_name, email = EXCLUDED.email, phone = EXCLUDED.phone
+                    full_name = EXCLUDED.full_name,
+                    email = EXCLUDED.email,
+                    phone = EXCLUDED.phone,
+                    email_hash = EXCLUDED.email_hash,
+                    phone_hash = EXCLUDED.phone_hash,
+                    location_raw = EXCLUDED.location_raw
                 """,
                 (
                     candidate_id,
                     doc["tenant_id"],
                     identity_rec["full_name"],
-                    identity_rec["email"],
-                    identity_rec["phone"],
+                    email_val,
+                    phone_val,
+                    email_hash,
+                    phone_hash,
                     identity_rec["location_raw"],
                     other_p_bytes,
                 ),
             )
 
-            # 7. Save Candidate Profile (Upsert)
+            # 7. Compute full_text_redacted and Save Candidate Profile (Upsert)
+            full_text_redacted = redact_text(
+                san.extracted_text,
+                identity_rec["full_name"],
+                [email_val] if email_val else [],
+                [phone_val] if phone_val else [],
+            )
+
             quality_flags = list(set(san.flags + raw_profile.get("quality", {}).get("warnings", [])))
             await cur.execute(
                 """
                 INSERT INTO candidate_profiles (
-                    id, tenant_id, document_id, profile, matching_profile, extractor_version, quality
+                    id, tenant_id, document_id, profile, matching_profile, full_text_redacted, extractor_version, quality
                 )
-                VALUES (%s, %s, %s, %s, %s, 'cv-extractor-1.0.0', %s)
+                VALUES (%s, %s, %s, %s, %s, %s, 'cv-extractor-1.0.0', %s)
                 ON CONFLICT (document_id) DO UPDATE SET
                     profile = EXCLUDED.profile,
                     matching_profile = EXCLUDED.matching_profile,
+                    full_text_redacted = EXCLUDED.full_text_redacted,
                     quality = EXCLUDED.quality
                 RETURNING id
                 """,
@@ -179,6 +235,7 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
                     doc_id,
                     json.dumps(raw_profile),
                     json.dumps(matching_profile),
+                    full_text_redacted,
                     json.dumps({"flags": quality_flags, "confidence": san.is_valid}),
                 ),
             )
@@ -227,14 +284,19 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
             logger.info(f"Successfully ingested and processed document {filename} (status: {doc_status})")
             return {"status": doc_status, "profile_id": str(profile_id), "candidate_code": candidate_code}
         except Exception as e:
-            logger.error(f"Processing failed for document {filename}: {e}", exc_info=True)
-            await cur.execute(
-                """
-                UPDATE documents
-                SET status = 'NEEDS_REVIEW', reasons = ARRAY['PROCESSING_ERROR: ' || %s]
-                WHERE id = %s
-                """,
-                (str(e)[:150], doc_id),
-            )
-            await conn.commit()
+            logger.exception(f"Processing failed for document {filename}: {e}")
+            try:
+                await conn.rollback()
+                async with conn.cursor() as err_cur:
+                    await err_cur.execute(
+                        """
+                        UPDATE documents
+                        SET status = 'NEEDS_REVIEW', reasons = array_append(reasons, 'PROCESSING_ERROR: ' || %s)
+                        WHERE id = %s
+                        """,
+                        (str(e)[:150], doc_id),
+                    )
+                    await conn.commit()
+            except Exception as rollback_err:
+                logger.error(f"Failed to record processing error for document {doc_id}: {rollback_err}")
             return {"status": "NEEDS_REVIEW", "reasons": [f"PROCESSING_ERROR: {str(e)[:150]}"]}
