@@ -130,3 +130,13 @@ Metrik mencakup:
 - `pipeline_stage_latency_seconds{stage="..."}`: Latensi pemrosesan tiap tahap.
 - `llm_calls_total` & `llm_tokens_total`: Total konsumsi API LLM.
 - `cv_failures_total{reason="..."}`: Rincian berkas yang ditolak/gagal.
+
+---
+
+## 6. Konkurensi Uvicorn & Catatan Rate Limiter (FX-06 / R-14)
+
+Unit systemd `deploy/systemd/cv-screening-api.service` dikonfigurasi menggunakan `--workers 2`.
+Karena rate limiter saat ini diimplementasikan secara thread-safe in-memory per proses, perlu dicatat karakteristik operasionalnya:
+- **Limit Efektif = Limit per Worker × Jumlah Worker (2)**.
+- Contoh: Batas upload 20 request/menit pada arsitektur 2 workers memberikan batas agregat efektif 40 request/menit jika beban terbagi merata melalui round-robin worker OS.
+- Jika diinginkan batas strict absolut tunggal per IP, uvicorn dapat diturunkan menjadi `--workers 1` atau state rate limiter dimigrasikan ke Redis / tabel PostgreSQL terpusat.
