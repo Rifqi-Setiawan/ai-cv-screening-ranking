@@ -6,6 +6,8 @@ import re
 from datetime import date
 from typing import Any
 
+from src.domain.text_match import match_skill
+
 ROLE_FAMILY_PATTERNS = {
     "backend": [
         r"backend",
@@ -167,7 +169,6 @@ CONCEPT_ALIASES = {
         "kurva s",
         "manajemen proyek",
     ],
-    "skill:microsoft_excel": ["excel", "ms excel", "microsoft excel", "spreadsheet", "ms. office", "microsoft office"],
     "skill:microsoft_project": ["microsoft project", "ms project", "project"],
     "skill:earthwork": ["pekerjaan tanah", "tanah dasar", "galian", "timbunan", "cut and fill", "earthwork"],
     "skill:foundation": ["pondasi", "foundation", "tiang pancang", "bored pile", "base a"],
@@ -361,7 +362,10 @@ CONCEPT_ALIASES = {
         "google data studio",
         "vosviewer",
     ],
-    "skill:sql": ["sql", "mysql", "postgresql", "query", "queries", "database"],
+    "skill:sql": ["sql", "mysql", "postgresql", "ansi sql", "relational database"],
+    "skill:sqlite": ["sqlite", "sqlite3"],
+    "skill:java": ["java", "j2ee", "spring", "spring boot"],
+    "skill:javascript": ["javascript", "js", "ecmascript", "node", "nodejs"],
 }
 
 
@@ -578,7 +582,7 @@ def eval_skill(
     for exp in profile.get("experiences", []):
         combined_text = f"{exp.get('title', '')} " + " ".join(b.get("text", "") for b in exp.get("bullets", []))
         for kw in target_keywords:
-            if re.search(rf"\b{re.escape(kw)}", combined_text, re.IGNORECASE):
+            if match_skill(combined_text, kw):
                 evidence.append({"quote": combined_text[:120], "context": "experience", "verified": True})
                 return "STRONG", 0.95, {}, evidence, []
 
@@ -586,20 +590,20 @@ def eval_skill(
     for prj in profile.get("projects", []):
         prj_text = prj.get("text", "") or prj.get("title", "")
         for kw in target_keywords:
-            if re.search(rf"\b{re.escape(kw)}", prj_text, re.IGNORECASE):
+            if match_skill(prj_text, kw):
                 evidence.append({"quote": prj_text[:120], "context": "project", "verified": True})
                 return "PARTIAL", 0.85, {}, evidence, []
 
     for sk in profile.get("skills", []):
         for kw in target_keywords:
-            if re.search(rf"\b{re.escape(kw)}", sk, re.IGNORECASE):
+            if match_skill(sk, kw):
                 evidence.append({"quote": f"Skills: {sk}", "context": "skills_list", "verified": True})
                 return "PARTIAL", 0.85, {}, evidence, []
 
     # Fallback context: In summary or headline
     summary_text = f"{profile.get('summary', '')} {profile.get('headline', '')}"
     for kw in target_keywords:
-        if re.search(rf"\b{re.escape(kw)}", summary_text, re.IGNORECASE):
+        if match_skill(summary_text, kw):
             evidence.append({"quote": f"Summary: {summary_text[:120]}", "context": "summary", "verified": True})
             return "PARTIAL", 0.80, {}, evidence, []
 
