@@ -15,6 +15,7 @@ from src.domain.jd_compiler import compile_job_requirements
 from src.domain.models import User, UserRole
 from src.domain.policy_linter import lint_text
 from src.infrastructure.database import get_connection
+from src.infrastructure.logging import logger
 
 router = APIRouter(prefix="/api/v1/jobs/{job_id}/requirements", tags=["Requirements"])
 
@@ -191,6 +192,15 @@ async def add_manual_requirement(
 ) -> dict[str, Any]:
     """Allows recruiter to manually add/edit criteria without LLM."""
     lint_res = lint_text(req.description)
+    if lint_res.get("admin_flags"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "MOVE_TO_ELIGIBILITY",
+                "message": "Kriteria usia/gender tidak boleh menjadi kriteria penilaian. Pindahkan ke Syarat Administratif.",
+                "flags": lint_res["admin_flags"],
+            },
+        )
     if lint_res["prohibited_flags"]:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -346,6 +356,8 @@ async def approve_requirements(
         )
         req_rows = await cur.fetchall()
 
+        admin_violations = []
+
         for r in req_rows:
             flags = r["lint_flags"] or []
             proh = [f for f in flags if f.startswith("PROHIBITED_")]
@@ -357,6 +369,19 @@ async def approve_requirements(
                         "flags": proh,
                     }
                 )
+            adm = [f for f in flags if f.startswith("ADMIN_ONLY_")]
+            if adm:
+                admin_violations.append(r["requirement_id"])
+
+        if admin_violations:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "MOVE_TO_ELIGIBILITY",
+                    "requirement_ids": admin_violations,
+                    "message": "Kriteria usia/gender tidak boleh menjadi kriteria penilaian. Pindahkan ke Syarat Administratif.",
+                },
+            )
 
         if prohibited_violations:
             raise HTTPException(
@@ -379,6 +404,22 @@ async def approve_requirements(
             (current_user.id, set_id, current_user.tenant_id),
         )
         approved_row = await cur.fetchone()
+
+        # Embed requirements for hybrid retrieval (FX-32)
+        try:
+            from src.worker.embedding import embed_texts
+
+            req_descs = [r["description"] for r in req_rows]
+            if req_descs:
+                embeddings = embed_texts(req_descs)
+                for r_item, emb in zip(req_rows, embeddings):
+                    await cur.execute(
+                        "UPDATE requirements SET embedding = %s WHERE requirement_set_id = %s AND requirement_id = %s AND tenant_id = %s",
+                        (emb, set_id, r_item["requirement_id"], current_user.tenant_id),
+                    )
+        except Exception as e:
+            logger.warning(f"Failed to embed approved requirements: {e}")
+
         await conn.commit()
 
         return {

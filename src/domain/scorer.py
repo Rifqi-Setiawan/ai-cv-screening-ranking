@@ -38,6 +38,16 @@ def score(states: dict[str, str], requirement_set: dict[str, Any]) -> ScoreResul
     cat_den: dict[str, float] = {}
     must_not_strong: list[str] = []
     must_unknown: list[str] = []
+    skipped_non_scorable = False
+
+    valid_reqs = []
+    for r in reqs:
+        flags = r.get("lint_flags", [])
+        if any(f.startswith("PROHIBITED_") or f.startswith("ADMIN_ONLY_") for f in flags):
+            skipped_non_scorable = True
+            continue
+        valid_reqs.append(r)
+    reqs = valid_reqs
 
     for r in reqs:
         rid = r["requirement_id"]
@@ -96,6 +106,8 @@ def score(states: dict[str, str], requirement_set: dict[str, Any]) -> ScoreResul
     total_weight = sum(float(r["weight"]) for r in reqs) or 1.0
     coverage = round(den / total_weight, 2)
     score_flags = []
+    if skipped_non_scorable:
+        score_flags.append("NON_SCORABLE_REQUIREMENT_SKIPPED")
 
     if coverage < 0.6:
         score_flags.append("LOW_COVERAGE")

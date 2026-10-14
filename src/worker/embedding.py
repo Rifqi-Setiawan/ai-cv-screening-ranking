@@ -1,4 +1,4 @@
-"""Embedding generator for candidate profile chunks using MiniLM on CPU."""
+"""Embedding generator for candidate profile chunks and requirements using Harrier on CPU (FX-32)."""
 
 from __future__ import annotations
 
@@ -15,14 +15,18 @@ def get_embedding_model() -> SentenceTransformer:
     if _model is None:
         logger.info(f"Loading embedding model {settings.EMBEDDING_MODEL} on CPU...")
         _model = SentenceTransformer(settings.EMBEDDING_MODEL, device="cpu")
-        logger.info("Embedding model loaded successfully.")
+        logger.info(f"Embedding model loaded successfully (max_seq_length: {_model.max_seq_length}).")
     return _model
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
+    """Encodes texts into normalized embedding vectors.
+
+    Harrier supports up to 32,768 tokens context window. Texts are normalized to cosine similarity.
+    """
     if not texts:
         return []
     model = get_embedding_model()
-    # MiniLM max tokens is 128, texts are passed per bullet / chunk
+    # Batch encoding with cosine normalization
     embeddings = model.encode(texts, batch_size=32, show_progress_bar=False, normalize_embeddings=True)
     return embeddings.tolist()

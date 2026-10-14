@@ -193,6 +193,28 @@ async def test_tenant_isolation_cross_tenant_access_denied(client: httpx.AsyncCl
     r = await client.delete(f"/api/v1/jobs/{job_b}/cvs", headers=headers_a)
     assert r.status_code == 404
 
+    # 13. GET /jobs/{B}/eligibility-rules -> 404
+    r = await client.get(f"/api/v1/jobs/{job_b}/eligibility-rules", headers=headers_a)
+    assert r.status_code == 404
+
+    # 14. POST /jobs/{B}/eligibility-rules -> 404
+    r = await client.post(
+        f"/api/v1/jobs/{job_b}/eligibility-rules",
+        json={
+            "rule_type": "AGE_MAX",
+            "value": {"years": 28},
+            "basis_category": "KARAKTERISTIK_JABATAN",
+            "justification": "Operasional lapangan 5 tahun ikatan dinas",
+            "reference_date": "2026-10-14",
+        },
+        headers=headers_a,
+    )
+    assert r.status_code == 404
+
+    # 15. GET /jobs/{B}/screenings/{run_b}/eligibility-summary -> 404
+    r = await client.get(f"/api/v1/jobs/{job_b}/screenings/{run_b}/eligibility-summary", headers=headers_a)
+    assert r.status_code == 404
+
 
 @pytest.mark.asyncio
 async def test_reveal_identity_non_existent_candidate_returns_404(client: httpx.AsyncClient, setup_two_tenants):

@@ -93,28 +93,6 @@ async def test_prohibited_criteria_blocks_approval(client: httpx.AsyncClient, re
 
 
 @pytest.mark.asyncio
-async def test_age_gender_and_fresh_grad_allowed(client: httpx.AsyncClient, recruiter_token: str):
-    headers = {"Authorization": f"Bearer {recruiter_token}"}
-    allowed_jd = "Dibutuhkan Backend Engineer: usia maks. 28 tahun, pria atau wanita, fresh graduate atau lulus S1."
-
-    # Create job
-    j_res = await client.post(
-        "/api/v1/jobs",
-        json={"title": "Age and Gender Allowed Job", "jd_text": allowed_jd},
-        headers=headers,
-    )
-    assert j_res.status_code == 201
-    job_id = j_res.json()["id"]
-
-    # Compile requirements -> MUST be valid (no prohibited flags)
-    c_res = await client.post(f"/api/v1/jobs/{job_id}/requirements/compile", headers=headers)
-    assert c_res.status_code == 201
-    c_data = c_res.json()
-    assert c_data["is_valid"] is True
-    assert len(c_data["prohibited_flags"]) == 0
-
-
-@pytest.mark.asyncio
 async def test_manual_prohibited_input_rejected(client: httpx.AsyncClient, recruiter_token: str):
     headers = {"Authorization": f"Bearer {recruiter_token}"}
 

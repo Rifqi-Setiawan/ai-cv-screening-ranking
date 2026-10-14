@@ -50,10 +50,12 @@ run-worker:
 seed:
 	PYTHONPATH=. $(PYTHON) scripts/seed_users.py
 
+CV_EXTRACTOR_PATH ?= /srv/hermes-control/services/cv-extractor/src
+
 eval:
-	cd docs/spec/golden_dataset && python3 evaluate.py --self-test
-	PYTHONPATH=/srv/hermes-control/services/cv-extractor/src $(PYTHON) scripts/m0_test_adapter.py
-	python3 docs/spec/golden_dataset/evaluate.py --extraction scripts/pred_extraction.json
+	cd docs/spec/golden_dataset && $(PYTHON) evaluate.py --self-test
+	PYTHONPATH=$(CV_EXTRACTOR_PATH) $(PYTHON) scripts/m0_test_adapter.py
+	$(PYTHON) docs/spec/golden_dataset/evaluate.py --extraction scripts/pred_extraction.json
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +

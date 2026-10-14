@@ -8,23 +8,15 @@ from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from src.api.dependencies import get_current_user, get_job_for_tenant, require_role
-from src.domain.eligibility import evaluate_candidate_eligibility
 from src.domain.explainer import generate_explanation
-from src.domain.kind_rules import (
-    eval_achievement,
-    eval_certification,
-    eval_education,
-    eval_experience_duration,
-    eval_leadership,
-    eval_responsibility,
-    eval_skill,
-)
 from src.domain.models import User, UserRole
-from src.domain.scorer import rank, score
-from src.domain.verifier import verify_requirement_with_llm
+from src.domain.scorer import score
+from src.domain.screening_service import execute_screening_run
+from src.infrastructure.config import settings
 from src.infrastructure.database import get_connection
 
 router = APIRouter(prefix="/api/v1/jobs/{job_id}/screenings", tags=["Screenings"])
@@ -35,16 +27,16 @@ class ScreeningRunCreate(BaseModel):
     use_verifier: bool = Field(default=False, description="Enable LLM verification for ambiguous criteria")
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_screening_run(
     job_id: uuid.UUID,
     payload: ScreeningRunCreate,
+    sync: bool = Query(default=False, description="Run synchronously for test/eval parity"),
     current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.RECRUITER, UserRole.HIRING_MANAGER])),
-) -> dict[str, Any]:
-    """Triggers an immutable screening run over all ready CVs for the job."""
+) -> JSONResponse:
+    """Enqueues an immutable screening run into jobs_queue asynchronously (FX-30)."""
     effective_as_of = payload.as_of or date.today().isoformat()
-    async with get_connection() as conn:
-        cur = conn.cursor()
+    async with get_connection() as conn, conn.cursor() as cur:
         await get_job_for_tenant(cur, job_id, current_user.tenant_id)
 
         # 1. Fetch latest approved requirement set for the job
@@ -63,49 +55,43 @@ async def trigger_screening_run(
                 detail="Kriteria belum disetujui. Setujui requirement set terlebih dahulu.",
             )
 
-        # 2. Fetch requirements in set
+        # 2. Fetch approved administrative eligibility rules
         await cur.execute(
             """
-            SELECT requirement_id, description, category, kind, importance, weight, concepts, params
-            FROM requirements
-            WHERE requirement_set_id = %s AND tenant_id = %s
-            ORDER BY requirement_id
-            """,
-            (req_set["id"], current_user.tenant_id),
-        )
-        requirements = await cur.fetchall()
-        if not requirements:
-            raise HTTPException(status_code=400, detail="Requirement set has no requirements")
-
-        req_set_dict = {
-            "category_weights": req_set["category_weights"],
-            "requirements": [dict(r) for r in requirements],
-        }
-
-        # Fetch active administrative eligibility rules
-        await cur.execute(
-            """
-            SELECT id, category, rule_type, parameters, justification, is_active
+            SELECT id, rule_type, value, basis_category, reference_date
             FROM eligibility_rules
-            WHERE job_id = %s AND tenant_id = %s AND is_active = true
+            WHERE job_id = %s AND tenant_id = %s AND status = 'APPROVED'
+            ORDER BY created_at ASC
             """,
             (job_id, current_user.tenant_id),
         )
-        active_rules = [dict(r) for r in await cur.fetchall()]
+        approved_rules = [dict(r) for r in await cur.fetchall()]
+        elig_snapshot = [
+            {
+                "id": str(r["id"]),
+                "rule_type": r["rule_type"],
+                "value": r["value"],
+                "basis_category": r["basis_category"],
+                "reference_date": str(r["reference_date"]),
+            }
+            for r in approved_rules
+        ]
 
-        # 3. Create immutable screening run record
+        # 3. Create immutable screening run record in QUEUED state
         run_id = uuid.uuid4()
         versions_info = {
-            "extractor": "cv-extractor 1.0.0",
-            "embedding": "microsoft/harrier-oss-v1-270m",
-            "scoring": "1.0.0",
+            "extractor": f"cv-extractor {settings.EXTRACTOR_VERSION}",
+            "embedding": settings.EMBEDDING_MODEL,
+            "scoring": settings.SCORING_VERSION,
+            "scoring_mode": settings.SCORING_MODE,
+            "semantic_threshold": settings.SEMANTIC_THRESHOLD,
         }
         await cur.execute(
             """
             INSERT INTO screening_runs (
-                id, tenant_id, job_id, requirement_set_id, status, as_of, versions, params, started_at
+                id, tenant_id, job_id, requirement_set_id, status, as_of, versions, params, eligibility_snapshot, progress, started_at
             )
-            VALUES (%s, %s, %s, %s, 'RUNNING', %s, %s, %s, now())
+            VALUES (%s, %s, %s, %s, 'QUEUED', %s, %s, %s, %s, '{\"done\": 0, \"total\": 0}'::jsonb, now())
             """,
             (
                 run_id,
@@ -115,296 +101,31 @@ async def trigger_screening_run(
                 effective_as_of,
                 json.dumps(versions_info),
                 json.dumps({"use_verifier": payload.use_verifier, "as_of": effective_as_of}),
+                json.dumps(elig_snapshot),
             ),
         )
 
-        # 4. Fetch all documents and candidate profiles for this job
+        # 4. Enqueue background task to jobs_queue
         await cur.execute(
             """
-            SELECT d.id as document_id, d.original_filename as file_name, d.sha256 as file_hash,
-                   d.status as quality_status, d.flags, d.reasons, d.candidate_id,
-                   cp.matching_profile, cp.full_text_redacted
-            FROM documents d
-            LEFT JOIN candidate_profiles cp ON cp.document_id = d.id AND cp.tenant_id = d.tenant_id
-            WHERE d.job_id = %s AND d.tenant_id = %s
+            INSERT INTO jobs_queue (type, payload, status, attempts, max_attempts)
+            VALUES ('screening_run', %s, 'PENDING', 0, 3)
             """,
-            (job_id, current_user.tenant_id),
-        )
-        cv_rows = await cur.fetchall()
-
-        scoring_items: list[dict[str, Any]] = []
-        eval_cache: dict[str, dict[str, Any]] = {}
-
-        for cv in cv_rows:
-            doc_id = cv["document_id"]
-            cand_id = cv["candidate_id"] or doc_id
-            file_name = cv["file_name"]
-            matching_prof = cv["matching_profile"] or {}
-            full_text = cv.get("full_text_redacted") or ""
-            flags = list(cv["flags"] or [])
-            reasons = list(cv["reasons"] or [])
-
-            # Check for edge case quality statuses
-            if cv["quality_status"] in ("REJECTED", "NEEDS_REVIEW", "DUPLICATE"):
-                eval_cache[str(cand_id)] = {
-                    "cv_id": cand_id,
-                    "document_id": doc_id,
-                    "file_name": file_name,
-                    "status": cv["quality_status"],
-                    "states": {},
-                    "metrics": {},
-                    "evidence": {},
-                    "flags": flags,
-                    "reasons": reasons,
-                    "score_res": None,
-                }
-                continue
-
-            # Evaluate each requirement
-            states_map: dict[str, str] = {}
-            metrics_map: dict[str, Any] = {}
-            ev_map: dict[str, list[dict[str, Any]]] = {}
-
-            for r in req_set_dict["requirements"]:
-                rid = r["requirement_id"]
-                kind = r["kind"]
-                if kind == "EXPERIENCE_DURATION":
-                    st, conf, m, evs, flgs = eval_experience_duration(matching_prof, r, as_of=effective_as_of)
-                    metrics_map.update(m)
-                elif kind == "SKILL":
-                    st, conf, m, evs, flgs = eval_skill(matching_prof, r)
-                elif kind == "RESPONSIBILITY":
-                    st, conf, m, evs, flgs = eval_responsibility(matching_prof, r)
-                elif kind == "EDUCATION":
-                    st, conf, m, evs, flgs = eval_education(matching_prof, r)
-                elif kind == "CERTIFICATION":
-                    st, conf, m, evs, flgs = eval_certification(matching_prof, r)
-                elif kind == "ACHIEVEMENT":
-                    st, conf, m, evs, flgs = eval_achievement(matching_prof, r)
-                elif kind == "LEADERSHIP":
-                    st, _conf, m, evs, flgs = eval_leadership(matching_prof, r)
-                else:
-                    st, _conf, m, evs, flgs = "NOT_DEMONSTRATED", 0.9, {}, [], []
-
-                flags.extend(flgs)
-
-                # Optional LLM verifier
-                if payload.use_verifier and st in ("PARTIAL", "STRONG") and evs:
-                    v_st, v_quote, v_flgs = await verify_requirement_with_llm(
-                        full_text, r, st, [e.get("quote", "") for e in evs]
-                    )
-                    st = v_st
-                    flags.extend(v_flgs)
-
-                states_map[rid] = st
-                ev_map[rid] = evs
-
-            # Calculate deterministic score
-            score_res = score(states_map, req_set_dict)
-            strong_count = sum(1 for v in states_map.values() if v == "STRONG")
-
-            # Ensure candidate exists in candidates table
-            await cur.execute(
-                "SELECT id FROM candidates WHERE id = %s AND tenant_id = %s", (cand_id, current_user.tenant_id)
-            )
-            if not await cur.fetchone():
-                c_code = f"C-{str(uuid.uuid4())[:8]}"
-                await cur.execute(
-                    """
-                    INSERT INTO candidates (id, tenant_id, candidate_code, status)
-                    VALUES (%s, %s, %s, 'ACTIVE')
-                    ON CONFLICT DO NOTHING
-                    """,
-                    (cand_id, current_user.tenant_id, c_code),
-                )
-
-            scoring_items.append(
-                {
-                    "candidate_id": str(cand_id),
-                    "cv_id": cand_id,
-                    "document_id": doc_id,
-                    "file_name": file_name,
-                    "result": score_res,
-                    "strong_count": strong_count,
-                }
-            )
-            eval_cache[str(cand_id)] = {
-                "cv_id": cand_id,
-                "document_id": doc_id,
-                "file_name": file_name,
-                "status": "SCORED",
-                "states": states_map,
-                "metrics": metrics_map,
-                "evidence": ev_map,
-                "flags": flags,
-                "reasons": reasons,
-                "score_res": score_res,
-            }
-
-        # 5. Deterministic tie-broken ranking
-        ranked_items = rank(scoring_items, run_id=str(run_id))
-        rank_lookup = {str(item["cv_id"]): idx + 1 for idx, item in enumerate(ranked_items)}
-
-        # 6. Save candidate_scores, requirement_scores, and evidence into DB
-        for str_cid, c_data in eval_cache.items():
-            cv_id_val = c_data["cv_id"]
-            doc_id_val = c_data["document_id"]
-            cand_rank = rank_lookup.get(str_cid, 999)
-            s_res = c_data["score_res"]
-
-            # Ensure candidate record exists in `candidates` table before inserting score
-            await cur.execute(
-                "SELECT id FROM candidates WHERE id = %s AND tenant_id = %s", (cv_id_val, current_user.tenant_id)
-            )
-            if not await cur.fetchone():
-                await cur.execute("SELECT nextval('candidate_code_seq') as seq")
-                seq_row = await cur.fetchone()
-                seq_val = seq_row["seq"] if seq_row and seq_row["seq"] else 1
-                cand_code = f"C-{seq_val:04d}"
-                await cur.execute(
-                    """
-                    INSERT INTO candidates (id, tenant_id, candidate_code, status)
-                    VALUES (%s, %s, %s, 'ACTIVE')
-                    ON CONFLICT (id) DO NOTHING
-                    """,
-                    (cv_id_val, current_user.tenant_id, cand_code),
-                )
-                await cur.execute(
-                    "UPDATE documents SET candidate_id = %s WHERE id = %s AND tenant_id = %s AND candidate_id IS NULL",
-                    (cv_id_val, doc_id_val, current_user.tenant_id),
-                )
-
-            raw_sc = s_res.raw_score if s_res else 0.0
-            fin_sc = s_res.final_score if s_res else 0.0
-            bnd = s_res.band if s_res else "R"
-            rec = s_res.recommendation if s_res else "MANUAL_CHECK"
-            cat_b = s_res.category_breakdown if s_res else {}
-            cov = s_res.coverage if s_res else 1.0
-            cand_flags = list(set(c_data["flags"] + (s_res.flags if s_res else [])))
-
-            await cur.execute(
-                """
-                INSERT INTO candidate_scores (
-                    run_id, candidate_id, tenant_id, document_id, rank, band,
-                    raw_score, final_score, capped, recommendation, category_scores, flags, coverage
-                )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, false, %s, %s, %s, %s)
-                ON CONFLICT (run_id, candidate_id) DO UPDATE SET
-                    rank = EXCLUDED.rank, final_score = EXCLUDED.final_score, coverage = EXCLUDED.coverage
-                """,
-                (
-                    run_id,
-                    cv_id_val,
-                    current_user.tenant_id,
-                    doc_id_val,
-                    cand_rank,
-                    bnd,
-                    raw_sc,
-                    fin_sc,
-                    rec,
-                    json.dumps(cat_b),
-                    cand_flags,
-                    cov,
-                ),
-            )
-
-            # Insert requirement scores & evidence
-            for req_obj in req_set_dict["requirements"]:
-                req_id_str = req_obj["requirement_id"]
-                st_val = c_data["states"].get(req_id_str, "NOT_DEMONSTRATED")
-                ev_list = c_data["evidence"].get(req_id_str, [])
-
-                await cur.execute(
-                    """
-                    INSERT INTO requirement_scores (
-                        run_id, candidate_id, requirement_id, tenant_id, state, confidence, method, metrics
-                    )
-                    VALUES (%s, %s, %s, %s, %s, 0.95, 'rule', '{}'::jsonb)
-                    ON CONFLICT (run_id, candidate_id, requirement_id) DO NOTHING
-                    """,
-                    (run_id, cv_id_val, req_id_str, current_user.tenant_id, st_val),
-                )
-
-                for ev_item in ev_list:
-                    await cur.execute(
-                        """
-                        INSERT INTO evidence (
-                            id, run_id, candidate_id, requirement_id, tenant_id, quote, context, verified
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                        """,
-                        (
-                            uuid.uuid4(),
-                            run_id,
-                            cv_id_val,
-                            req_id_str,
-                            current_user.tenant_id,
-                            ev_item.get("quote", ""),
-                            ev_item.get("context", "experience"),
-                            ev_item.get("verified", True),
-                        ),
-                    )
-
-            # Evaluate candidate administrative eligibility against active rules
-            if active_rules:
-                await cur.execute(
-                    "SELECT other_personal FROM candidate_identities WHERE candidate_id = %s AND tenant_id = %s",
-                    (cv_id_val, current_user.tenant_id),
-                )
-                id_row = await cur.fetchone()
-                raw_other_p = id_row["other_personal"] if id_row else {}
-                parsed_other_p = {}
-                if raw_other_p:
-                    try:
-                        if isinstance(raw_other_p, (bytes, memoryview)):
-                            parsed_other_p = json.loads(bytes(raw_other_p).decode("utf-8"))
-                        elif isinstance(raw_other_p, str):
-                            parsed_other_p = json.loads(raw_other_p)
-                        elif isinstance(raw_other_p, dict):
-                            parsed_other_p = raw_other_p
-                    except Exception:
-                        parsed_other_p = {}
-
-                elig_eval = evaluate_candidate_eligibility(
-                    {"other_personal": parsed_other_p},
-                    active_rules,
-                    as_of=date.fromisoformat(effective_as_of),
-                )
-                for ev in elig_eval.get("evaluations", []):
-                    await cur.execute(
-                        """
-                        INSERT INTO candidate_eligibility (
-                            run_id, candidate_id, rule_id, tenant_id, status, reason, reference_date
-                        )
-                        VALUES (%s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (run_id, candidate_id, rule_id) DO UPDATE SET
-                            status = EXCLUDED.status, reason = EXCLUDED.reason
-                        """,
-                        (
-                            run_id,
-                            cv_id_val,
-                            uuid.UUID(ev["rule_id"]),
-                            current_user.tenant_id,
-                            ev["status"],
-                            ev["reason"],
-                            effective_as_of,
-                        ),
-                    )
-
-        # Mark screening run DONE
-        await cur.execute(
-            "UPDATE screening_runs SET status = 'DONE', finished_at = now() WHERE id = %s",
-            (run_id,),
+            (json.dumps({"run_id": str(run_id)}),),
         )
         await conn.commit()
 
-        return {
-            "screening_run_id": str(run_id),
-            "status": "DONE",
-            "as_of": payload.as_of,
-            "total_candidates": len(cv_rows),
-            "scored_candidates": len(scoring_items),
-        }
+        if sync:
+            await execute_screening_run(run_id)
+            return JSONResponse(
+                status_code=status.HTTP_201_CREATED,
+                content={"status": "COMPLETED", "screening_run_id": str(run_id), "run_id": str(run_id)},
+            )
+
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={"status": "QUEUED", "screening_run_id": str(run_id), "run_id": str(run_id)},
+        )
 
 
 @router.get("/latest")
@@ -420,7 +141,7 @@ async def get_latest_screening(
             """
             SELECT id, status, as_of, started_at, finished_at
             FROM screening_runs
-            WHERE job_id = %s AND tenant_id = %s AND status = 'DONE'
+            WHERE job_id = %s AND tenant_id = %s AND status IN ('DONE', 'COMPLETED')
             ORDER BY COALESCE(finished_at, started_at) DESC NULLS LAST
             LIMIT 1
             """,
@@ -433,19 +154,7 @@ async def get_latest_screening(
         run_id = latest_run["id"]
         await cur.execute(
             """
-            WITH elig_summary AS (
-                SELECT candidate_id,
-                       CASE
-                           WHEN bool_or(status = 'NOT_ELIGIBLE') THEN 'NOT_ELIGIBLE'
-                           WHEN bool_or(status = 'UNKNOWN') THEN 'UNKNOWN'
-                           ELSE 'ELIGIBLE'
-                       END as eligibility_status,
-                       array_agg(reason) FILTER (WHERE reason IS NOT NULL) as eligibility_reasons
-                FROM candidate_eligibility
-                WHERE run_id = %s AND tenant_id = %s
-                GROUP BY candidate_id
-            ),
-            req_summary AS (
+            WITH req_summary AS (
                 SELECT candidate_id, jsonb_object_agg(requirement_id, state) as states
                 FROM requirement_scores
                 WHERE run_id = %s AND tenant_id = %s
@@ -454,16 +163,19 @@ async def get_latest_screening(
             SELECT cs.rank, cs.candidate_id as cv_id, cs.candidate_id, d.original_filename as file_name, cs.final_score, cs.raw_score,
                    cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status,
                    COALESCE(rs.states, '{}'::jsonb) as requirement_states,
-                   COALESCE(es.eligibility_status, 'ELIGIBLE') as eligibility_status,
-                   COALESCE(es.eligibility_reasons, '{}'::text[]) as eligibility_reasons
+                   COALESCE(ce.overall_status, 'NOT_APPLICABLE') as eligibility_status,
+                   COALESCE(
+                       ARRAY(SELECT jsonb_array_elements(ce.details)->>'reason_code'),
+                       '{}'::text[]
+                   ) as eligibility_reasons
             FROM candidate_scores cs
             JOIN documents d ON cs.document_id = d.id AND d.tenant_id = cs.tenant_id
             LEFT JOIN req_summary rs ON rs.candidate_id = cs.candidate_id
-            LEFT JOIN elig_summary es ON es.candidate_id = cs.candidate_id
+            LEFT JOIN candidate_eligibility ce ON ce.candidate_id = cs.candidate_id AND ce.run_id = cs.run_id AND ce.tenant_id = cs.tenant_id
             WHERE cs.run_id = %s AND cs.tenant_id = %s
             ORDER BY cs.rank ASC NULLS LAST, cs.final_score DESC
             """,
-            (run_id, current_user.tenant_id, run_id, current_user.tenant_id, run_id, current_user.tenant_id),
+            (run_id, current_user.tenant_id, run_id, current_user.tenant_id),
         )
         rows = await cur.fetchall()
         return {
@@ -479,10 +191,36 @@ async def get_latest_screening(
         }
 
 
+@router.get("/{run_id}")
+async def get_screening_run_status(
+    job_id: uuid.UUID,
+    run_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Returns status and progress of a screening run (FX-30)."""
+    async with get_connection() as conn, conn.cursor() as cur:
+        await get_job_for_tenant(cur, job_id, current_user.tenant_id)
+        await cur.execute(
+            "SELECT id, status, progress, started_at, finished_at FROM screening_runs WHERE id = %s AND job_id = %s AND tenant_id = %s",
+            (run_id, job_id, current_user.tenant_id),
+        )
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screening run not found")
+        return {
+            "id": str(row["id"]),
+            "status": row["status"],
+            "progress": row["progress"],
+            "started_at": str(row["started_at"]) if row["started_at"] else None,
+            "finished_at": str(row["finished_at"]) if row["finished_at"] else None,
+        }
+
+
 @router.get("/{run_id}/rankings")
 async def get_rankings(
     job_id: uuid.UUID,
     run_id: uuid.UUID,
+    eligibility: str = Query(default="all", description="Filter eligibility: all | eligible | eligible_or_unknown"),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Returns candidate rankings for a completed screening run."""
@@ -498,19 +236,7 @@ async def get_rankings(
 
         await cur.execute(
             """
-            WITH elig_summary AS (
-                SELECT candidate_id,
-                       CASE
-                           WHEN bool_or(status = 'NOT_ELIGIBLE') THEN 'NOT_ELIGIBLE'
-                           WHEN bool_or(status = 'UNKNOWN') THEN 'UNKNOWN'
-                           ELSE 'ELIGIBLE'
-                       END as eligibility_status,
-                       array_agg(reason) FILTER (WHERE reason IS NOT NULL) as eligibility_reasons
-                FROM candidate_eligibility
-                WHERE run_id = %s AND tenant_id = %s
-                GROUP BY candidate_id
-            ),
-            req_summary AS (
+            WITH req_summary AS (
                 SELECT candidate_id, jsonb_object_agg(requirement_id, state) as states
                 FROM requirement_scores
                 WHERE run_id = %s AND tenant_id = %s
@@ -519,22 +245,34 @@ async def get_rankings(
             SELECT cs.rank, cs.candidate_id as cv_id, cs.candidate_id, d.original_filename as file_name, cs.final_score, cs.raw_score,
                    cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status,
                    COALESCE(rs.states, '{}'::jsonb) as requirement_states,
-                   COALESCE(es.eligibility_status, 'ELIGIBLE') as eligibility_status,
-                   COALESCE(es.eligibility_reasons, '{}'::text[]) as eligibility_reasons
+                   COALESCE(ce.overall_status, 'NOT_APPLICABLE') as eligibility_status,
+                   COALESCE(
+                       ARRAY(SELECT jsonb_array_elements(ce.details)->>'reason_code'),
+                       '{}'::text[]
+                   ) as eligibility_reasons
             FROM candidate_scores cs
             JOIN documents d ON cs.document_id = d.id AND d.tenant_id = cs.tenant_id
             LEFT JOIN req_summary rs ON rs.candidate_id = cs.candidate_id
-            LEFT JOIN elig_summary es ON es.candidate_id = cs.candidate_id
+            LEFT JOIN candidate_eligibility ce ON ce.candidate_id = cs.candidate_id AND ce.run_id = cs.run_id AND ce.tenant_id = cs.tenant_id
             WHERE cs.run_id = %s AND cs.tenant_id = %s
             ORDER BY cs.rank ASC NULLS LAST, cs.final_score DESC
             """,
-            (run_id, current_user.tenant_id, run_id, current_user.tenant_id, run_id, current_user.tenant_id),
+            (run_id, current_user.tenant_id, run_id, current_user.tenant_id),
         )
-        rows = await cur.fetchall()
+        rows = [dict(r) for r in await cur.fetchall()]
+
+        # Filter eligibility if specified while preserving original candidate rank
+        if eligibility == "eligible":
+            filtered_rows = [r for r in rows if r["eligibility_status"] == "ELIGIBLE"]
+        elif eligibility == "eligible_or_unknown":
+            filtered_rows = [r for r in rows if r["eligibility_status"] in ("ELIGIBLE", "UNKNOWN")]
+        else:
+            filtered_rows = rows
+
         return {
             "job_id": str(job_id),
             "screening_run_id": str(run_id),
-            "rankings": [dict(r) for r in rows],
+            "rankings": filtered_rows,
         }
 
 
@@ -627,6 +365,21 @@ async def get_candidate_detail(
             ev_map,
         )
 
+        # Fetch eligibility details
+        await cur.execute(
+            """
+            SELECT overall_status, details
+            FROM candidate_eligibility
+            WHERE run_id = %s AND candidate_id = %s AND tenant_id = %s
+            """,
+            (run_id, cv_id, current_user.tenant_id),
+        )
+        elig_row = await cur.fetchone()
+        elig_data = {
+            "overall_status": elig_row["overall_status"] if elig_row else "NOT_APPLICABLE",
+            "details": elig_row["details"] if elig_row else [],
+        }
+
         return {
             "cv_id": str(cv_id),
             "file_name": cand_score["file_name"],
@@ -640,6 +393,7 @@ async def get_candidate_detail(
             "requirement_states": req_states,
             "evidence": ev_map,
             "explanation": explanation,
+            "eligibility": elig_data,
         }
 
 
@@ -718,7 +472,7 @@ async def export_for_evaluator(
         run_row = await cur.fetchone()
         if not run_row:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screening run not found")
-        as_of = str(run_row["as_of"]) if run_row else "2026-10-01"
+        as_of = str(run_row["as_of"]) if run_row and run_row.get("as_of") else date.today().isoformat()
 
         await cur.execute(
             """
