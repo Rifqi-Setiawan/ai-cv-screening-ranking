@@ -1,5 +1,7 @@
 from unittest.mock import AsyncMock, patch
+
 import pytest
+
 from src.domain.jd_compiler import compile_jd_rule_based, compile_job_requirements
 
 

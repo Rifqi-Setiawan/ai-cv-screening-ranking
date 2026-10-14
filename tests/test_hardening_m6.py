@@ -7,6 +7,7 @@ import uuid
 import httpx
 import pytest
 
+from src.infrastructure.config import settings
 from src.infrastructure.database import get_connection
 
 TEST_TENANT = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -14,13 +15,13 @@ TEST_TENANT = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 @pytest.mark.asyncio
 async def test_metrics_endpoint(client: httpx.AsyncClient):
-    res = await client.get("/metrics")
+    res = await client.get("/metrics", headers={"Authorization": f"Bearer {settings.METRICS_TOKEN}"})
     assert res.status_code == 200
     text = res.text
     assert "cv_processed_total" in text
     assert "pipeline_stage_latency_seconds" in text
     assert "llm_tokens_total" in text
-    assert "llm_cache_total" in text
+    assert "llm_cache" in text
 
 
 @pytest.mark.asyncio

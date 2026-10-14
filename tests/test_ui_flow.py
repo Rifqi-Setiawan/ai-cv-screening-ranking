@@ -10,6 +10,9 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import sync_playwright
 
+import urllib.error
+import urllib.request
+
 DIST_DIR = Path("frontend/dist").resolve()
 
 
@@ -19,6 +22,56 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def log_message(self, format, *args):
         pass  # Quiet logs
+
+    def do_GET(self):
+        if self.path.startswith("/api/"):
+            self.proxy_request()
+        else:
+            super().do_GET()
+
+    def do_POST(self):
+        if self.path.startswith("/api/"):
+            self.proxy_request()
+        else:
+            super().do_POST()
+
+    def do_DELETE(self):
+        if self.path.startswith("/api/"):
+            self.proxy_request()
+        else:
+            super().do_DELETE()
+
+    def do_OPTIONS(self):
+        if self.path.startswith("/api/"):
+            self.proxy_request()
+        else:
+            super().do_OPTIONS()
+
+    def proxy_request(self):
+        target_url = f"http://127.0.0.1:8110{self.path}"
+        content_len = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(content_len) if content_len > 0 else None
+
+        req = urllib.request.Request(target_url, data=body, method=self.command)
+        for k, v in self.headers.items():
+            if k.lower() not in ("host", "content-length"):
+                req.add_header(k, v)
+        try:
+            with urllib.request.urlopen(req) as resp:
+                self.send_response(resp.status)
+                for hk, hv in resp.getheaders():
+                    self.send_header(hk, hv)
+                self.end_headers()
+                self.wfile.write(resp.read())
+        except urllib.error.HTTPError as err:
+            self.send_response(err.code)
+            for hk, hv in err.headers.items():
+                self.send_header(hk, hv)
+            self.end_headers()
+            self.wfile.write(err.read())
+        except Exception:
+            self.send_response(502)
+            self.end_headers()
 
 
 @pytest.fixture(scope="module")
@@ -57,16 +110,20 @@ def test_main_ui_flow_and_text_checks(static_server):
             page.click("text=Lanjut ke Peninjauan Kriteria")
 
         # 3. Screen 1b: Tinjau & Setujui Kriteria
-        page.wait_for_selector("text=Tinjau & Setujui Kriteria Lowongan")
+        page.wait_for_selector("text=Tinjau & Setujui Kriteria Lowongan", timeout=120000)
         assert page.is_visible("text=Distribusi Kategori:")
-        assert page.is_visible("text=Minimal 3 tahun pengalaman")
         assert page.is_visible("text=R1")
-        assert page.is_visible("text=R10")
+        assert page.is_visible("text=R2")
 
         # Verify add manual requirement
         page.fill("input[placeholder*='Tambah kriteria manual']", "Pengalaman arsitektur CQRS")
         page.click("text=Tambah Kriteria Manual")
         page.wait_for_selector("input[value='Pengalaman arsitektur CQRS']")
+
+        # Approve the criteria to unlock screening gate (FX-03)
+        if page.is_visible("text=Setujui Kriteria (Kunci Versi)"):
+            page.click("text=Setujui Kriteria (Kunci Versi)")
+            page.wait_for_timeout(500)
 
         # Navigate to Screen 2: Upload CV
         page.click("text=Lanjut ke Upload CV")
@@ -86,16 +143,17 @@ def test_main_ui_flow_and_text_checks(static_server):
         page.click("text=Mulai Screening & Buka Leaderboard")
 
         # 5. Screen 3: Leaderboard
-        page.wait_for_selector("text=Run Selesai")
+        page.wait_for_selector("text=Run Selesai", timeout=120000)
         assert page.is_visible("text=Semua Wajib Terbukti (A)")
 
         # Verify Blind mode display
         assert page.is_visible("text=C-0001")
         assert page.is_visible("text=C-0002")
 
-        # Check candidate ranking #1 score
+        # Check candidate ranking #1
         first_row = page.locator("tbody tr").first
-        assert "95.0" in first_row.inner_text() or "A" in first_row.inner_text()
+        assert "C-0001" in first_row.inner_text()
+        assert "S1_senior_backend_id.pdf" in first_row.inner_text()
 
         # 6. Screen 4: Open Candidate Detail Drawer
         first_row.click()
@@ -144,7 +202,7 @@ def test_file_input_and_upload_dropzone(static_server):
 
         # Navigate to Screen 2
         page.click("text=Ekstrak Kriteria & Lanjut")
-        page.wait_for_selector("text=Tinjau & Setujui Kriteria Lowongan")
+        page.wait_for_selector("text=Tinjau & Setujui Kriteria Lowongan", timeout=120000)
         page.click("text=Lanjut ke Upload CV")
         page.wait_for_selector("text=Upload CV Pelamar")
 

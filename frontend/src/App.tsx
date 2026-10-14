@@ -649,8 +649,13 @@ Kualifikasi:
             requirement_set_version: criteriaVersion,
             category_weights: { EXPERIENCE: 40, HARD_SKILLS: 30, EDUCATION_CERT: 15, ACHIEVEMENT: 15 },
             requirements: requirements,
-            status: 'APPROVED',
+            status: 'DRAFT',
           }),
+        })
+        // Formally approve the requirement set via the approval gate endpoint (FX-03)
+        await fetch(`/api/v1/jobs/${jId}/requirements/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         })
       } catch (e) {
         console.warn('Requirements import note:', e)
@@ -820,7 +825,7 @@ Kualifikasi:
     try {
       const res = await fetch('/api/v1/requirements/compile-preview', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ jd_text: jobDescription }),
       })
       if (res.ok) {
@@ -910,8 +915,12 @@ Kualifikasi:
             requirement_set_version: nextVer,
             category_weights: { EXPERIENCE: 40, HARD_SKILLS: 30, EDUCATION_CERT: 15, ACHIEVEMENT: 15 },
             requirements: requirements,
-            status: 'APPROVED',
+            status: 'DRAFT',
           }),
+        })
+        await fetch(`/api/v1/jobs/${currentJobId}/requirements/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         })
       } catch (e) {
         console.warn('Requirements persist error:', e)

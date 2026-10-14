@@ -9,9 +9,10 @@ from src.domain.auth import create_access_token
 async def test_job_update_rename_and_delete():
     token = create_access_token(
         data={
-            "sub": "00000000-0000-0000-0000-000000000001",
-            "role": "RECRUITER",
+            "sub": "ce12fcef-601b-4fb8-b8ed-f3eab5e8de6c",
+            "role": "recruiter",
             "tenant_id": "00000000-0000-0000-0000-000000000001",
+            "email": "recruiter@rifqisetiawan.my.id",
         }
     )
     headers = {"Authorization": f"Bearer {token}"}

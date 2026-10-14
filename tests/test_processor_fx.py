@@ -119,16 +119,23 @@ async def test_processor_deduplicates_candidate_by_email():
         "education": [],
         "skills": ["python"],
     }
-    mock_san = SanitizeResult(
+    mock_san1 = SanitizeResult(
         is_valid=True,
         status="READY",
-        extracted_text="Alice Smith CV Python engineer",
-        sha256="abc",
+        extracted_text="Alice Smith initial CV Python backend engineer",
+        sha256="abc1",
+        file_type="pdf",
+    )
+    mock_san2 = SanitizeResult(
+        is_valid=True,
+        status="READY",
+        extracted_text="Alice Smith updated CV with Python, FastAPI and Kubernetes",
+        sha256="abc2",
         file_type="pdf",
     )
 
     with (
-        patch("src.worker.processor.sanitize_file", return_value=mock_san),
+        patch("src.worker.processor.sanitize_file", side_effect=[mock_san1, mock_san2]),
         patch("src.worker.processor.extract_candidate_profile", return_value=mock_profile),
         patch("src.worker.processor.embed_texts", return_value=[[0.1] * 640]),
     ):

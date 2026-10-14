@@ -1,12 +1,12 @@
 import uuid
+
 import httpx
 import pytest
+import pytest_asyncio
 
 from src.domain.auth import create_access_token
 from src.domain.models import UserRole
 from src.infrastructure.database import get_connection
-
-import pytest_asyncio
 
 TEST_TENANT = uuid.uuid4()
 ADMIN_USER = uuid.uuid4()

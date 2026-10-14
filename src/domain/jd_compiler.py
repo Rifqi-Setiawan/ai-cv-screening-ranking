@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 import uuid
 from typing import Any, Literal
-from pydantic import BaseModel, Field, ValidationError
+
+from pydantic import BaseModel, Field
 
 from src.domain.policy_linter import lint_text
 from src.infrastructure.gateway import gateway
@@ -36,6 +37,7 @@ def determine_importance(line: str, default: str = "STRONG_PREFERENCE") -> str:
     if any(k in lower for k in NICE_TO_HAVE_KEYWORDS):
         return "NICE_TO_HAVE"
     return default
+
 
 DEFAULT_CATEGORY_WEIGHTS = {
     "EXPERIENCE": 40,
@@ -230,7 +232,9 @@ async def compile_job_requirements(jd_text: str, tenant_id: uuid.UUID | None = N
                 r_lint = lint_text(desc)
                 concepts = list(item.get("concepts", []))
                 for pat, c_list, _cat, _knd, _imp, _wt in CONCEPT_RULES:
-                    if re.search(pat, desc, re.IGNORECASE) or re.search(pat, item.get("source_text", ""), re.IGNORECASE):
+                    if re.search(pat, desc, re.IGNORECASE) or re.search(
+                        pat, item.get("source_text", ""), re.IGNORECASE
+                    ):
                         for c in c_list:
                             if c not in concepts:
                                 concepts.append(c)

@@ -1,4 +1,5 @@
 from datetime import date
+
 from src.domain.kind_rules import eval_experience_duration, parse_ym
 
 

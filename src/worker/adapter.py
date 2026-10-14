@@ -154,73 +154,24 @@ def parse_experiences(section_text: str, full_doc_text: str) -> list[dict[str, A
         title = ""
         org = ""
 
-        # Case 1: Pre-text exists
-        if pre_text and len(pre_text) > 2:
-            parts = re.split(r"[,|—–-]", pre_text)
+        # Extract title and organization from pre_text or preceding lines
+        if pre_text:
+            parts = re.split(r"[—|]", pre_text)
             if len(parts) >= 2:
-                p0, p1 = parts[0].strip(), parts[1].strip()
-                if any(
-                    k in p1.lower()
-                    for k in [
-                        "analyst",
-                        "engineer",
-                        "manager",
-                        "staff",
-                        "intern",
-                        "developer",
-                        "consultant",
-                        "spv",
-                        "lead",
-                        "officer",
-                        "asisten",
-                    ]
-                ):
-                    title, org = p1, p0
-                else:
-                    title, org = p0, p1
-            elif idx + 1 < len(lines) and not RANGE_REGEX.search(lines[idx + 1]):
-                next_l = lines[idx + 1].strip("•-* ")
-                if (
-                    any(
-                        k in next_l.lower()
-                        for k in [
-                            "intern",
-                            "analyst",
-                            "engineer",
-                            "staff",
-                            "manager",
-                            "lead",
-                            "developer",
-                            "officer",
-                            "consultant",
-                            "spv",
-                            "supervisor",
-                            "head",
-                            "koordinator",
-                        ]
-                    )
-                    or len(next_l) < 45
-                ):
-                    title = next_l
-                    org = pre_text
-                else:
-                    title = pre_text
+                title = parts[0].strip()
+                org = parts[1].strip().split(",")[0].strip()
             else:
-                title = pre_text
-
-        # Case 2: Pre-text was empty (e.g. date on its own line)
-        if not title:
-            m_single = re.search(r"\b(19\d{2}|20\d{2})\b\s*[|—–-]\s*(.+)", curr_line)
-            if m_single:
-                cand_txt = m_single.group(2).strip()
-                if " at " in cand_txt.lower():
-                    p_parts = re.split(r"\s+at\s+", cand_txt, flags=re.I)
-                    title = p_parts[0].strip()
-                    org = p_parts[1].strip()
-                elif " di " in cand_txt.lower():
-                    p_parts = re.split(r"\s+di\s+", cand_txt, flags=re.I)
-                    title = p_parts[0].strip()
-                    org = p_parts[1].strip()
+                title = pre_text.strip()
+        elif idx > 0:
+            prev_line = lines[idx - 1].strip("(-|•— ")
+            parts = re.split(r"[—|]", prev_line)
+            if len(parts) >= 2:
+                title = parts[0].strip()
+                org = parts[1].strip().split(",")[0].strip()
+            else:
+                title = prev_line.strip()
+                if idx > 1:
+                    org = lines[idx - 2].strip().split(",")[0].strip()
                 else:
                     title = cand_txt
                 title = re.sub(

@@ -1,4 +1,3 @@
-import pytest
 from src.domain.text_match import match_skill
 
 

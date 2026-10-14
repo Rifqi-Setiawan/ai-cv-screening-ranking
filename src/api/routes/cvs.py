@@ -294,8 +294,10 @@ async def export_extractions(
             prof = r["profile"] or {}
             experiences = []
             for exp in prof.get("experiences", []):
-                start_val = exp.get("start", {}).get("value")
-                end_val = exp.get("end", {}).get("value")
+                start_obj = exp.get("start")
+                end_obj = exp.get("end")
+                start_val = start_obj.get("value") if isinstance(start_obj, dict) else start_obj
+                end_val = end_obj.get("value") if isinstance(end_obj, dict) else end_obj
                 experiences.append(
                     {
                         "title": exp.get("title"),

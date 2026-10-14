@@ -247,7 +247,9 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
                         (text_dup["id"], text_dup["original_filename"], doc_id),
                     )
                     await conn.commit()
-                    logger.info(f"Document {filename} marked as DUPLICATE of {text_dup['original_filename']} by text fingerprint")
+                    logger.info(
+                        f"Document {filename} marked as DUPLICATE of {text_dup['original_filename']} by text fingerprint"
+                    )
                     return {"status": "DUPLICATE", "duplicate_of": text_dup["original_filename"]}
 
             # Check if candidate already has another document in this job -> POSSIBLE_DUPLICATE_OF

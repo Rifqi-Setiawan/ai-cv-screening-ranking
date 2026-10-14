@@ -6,6 +6,7 @@ from src.infrastructure.database import get_connection
 @pytest.mark.asyncio
 async def test_worker_stale_running_job_recovered():
     async with get_connection() as conn, conn.cursor() as cur:
+        await cur.execute("DELETE FROM jobs_queue WHERE type LIKE 'test_%'")
         # Insert a job that got stuck in RUNNING 15 minutes ago with attempts = 1
         await cur.execute(
             """
@@ -17,21 +18,22 @@ async def test_worker_stale_running_job_recovered():
         job_id = (await cur.fetchone())["id"]
         await conn.commit()
 
-        # Execute the claim query used by the worker
+        # Execute the claim query used by the worker targeting this job condition
         await cur.execute(
             """
             UPDATE jobs_queue
             SET status = 'RUNNING', locked_at = now(), attempts = attempts + 1
             WHERE id = (
                 SELECT id FROM jobs_queue
-                WHERE (status = 'PENDING' AND run_after <= now())
-                   OR (status = 'RUNNING' AND locked_at < now() - interval '10 minutes' AND attempts < max_attempts)
-                ORDER BY id ASC
+                WHERE id = %s
+                  AND ((status = 'PENDING' AND run_after <= now())
+                   OR (status = 'RUNNING' AND locked_at < now() - interval '10 minutes' AND attempts < max_attempts))
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
             )
             RETURNING id, status, attempts
-            """
+            """,
+            (job_id,),
         )
         claimed = await cur.fetchone()
         assert claimed is not None

@@ -1,6 +1,7 @@
 import uuid
 from pathlib import Path
 from unittest.mock import patch
+
 import pytest
 
 from src.infrastructure.config import settings
@@ -45,11 +46,20 @@ async def test_duplicate_text_content_marks_duplicate():
         await conn.commit()
 
     identical_text = "Budi Santoso is a Software Engineer with Python and Docker skills."
-    mock_san1 = SanitizeResult(is_valid=True, status="READY", extracted_text=identical_text, sha256="sha_unique_1", file_type="pdf")
-    mock_san2 = SanitizeResult(is_valid=True, status="READY", extracted_text=identical_text, sha256="sha_unique_2", file_type="pdf")
+    mock_san1 = SanitizeResult(
+        is_valid=True, status="READY", extracted_text=identical_text, sha256="sha_unique_1", file_type="pdf"
+    )
+    mock_san2 = SanitizeResult(
+        is_valid=True, status="READY", extracted_text=identical_text, sha256="sha_unique_2", file_type="pdf"
+    )
 
     mock_profile = {
-        "identity": {"full_name": "Budi Santoso", "email": "budi@dedup.com", "phone": "081299991111", "other_personal": {}},
+        "identity": {
+            "full_name": "Budi Santoso",
+            "email": "budi@dedup.com",
+            "phone": "081299991111",
+            "other_personal": {},
+        },
         "headline": "Software Engineer",
         "summary": "Experienced dev",
         "experiences": [],
@@ -58,14 +68,16 @@ async def test_duplicate_text_content_marks_duplicate():
     }
 
     with patch("src.worker.processor.embed_texts", return_value=[[0.1] * 640]):
-        with patch("src.worker.processor.sanitize_file", return_value=mock_san1), patch(
-            "src.worker.processor.extract_candidate_profile", return_value=mock_profile
+        with (
+            patch("src.worker.processor.sanitize_file", return_value=mock_san1),
+            patch("src.worker.processor.extract_candidate_profile", return_value=mock_profile),
         ):
             res1 = await process_document(doc1_id)
             assert res1["status"] == "READY"
 
-        with patch("src.worker.processor.sanitize_file", return_value=mock_san2), patch(
-            "src.worker.processor.extract_candidate_profile", return_value=mock_profile
+        with (
+            patch("src.worker.processor.sanitize_file", return_value=mock_san2),
+            patch("src.worker.processor.extract_candidate_profile", return_value=mock_profile),
         ):
             res2 = await process_document(doc2_id)
             assert res2["status"] == "DUPLICATE"
@@ -107,21 +119,51 @@ async def test_different_cv_same_candidate_gets_possible_duplicate_flag():
         await conn.commit()
 
     # Different text, but same candidate identity email
-    san_a = SanitizeResult(is_valid=True, status="READY", extracted_text="Early version with Python", sha256="sha_A", file_type="pdf")
-    san_b = SanitizeResult(is_valid=True, status="READY", extracted_text="Updated version with Python, FastAPI and Go", sha256="sha_B", file_type="pdf")
+    san_a = SanitizeResult(
+        is_valid=True, status="READY", extracted_text="Early version with Python", sha256="sha_A", file_type="pdf"
+    )
+    san_b = SanitizeResult(
+        is_valid=True,
+        status="READY",
+        extracted_text="Updated version with Python, FastAPI and Go",
+        sha256="sha_B",
+        file_type="pdf",
+    )
 
-    prof_a = {"identity": {"full_name": "Dewi Sartika", "email": "dewi@multicv.com", "phone": "0812334455", "other_personal": {}}, "experiences": [], "education": [], "skills": ["python"]}
-    prof_b = {"identity": {"full_name": "Dewi Sartika", "email": "dewi@multicv.com", "phone": "0812334455", "other_personal": {}}, "experiences": [], "education": [], "skills": ["python", "go"]}
+    prof_a = {
+        "identity": {
+            "full_name": "Dewi Sartika",
+            "email": "dewi@multicv.com",
+            "phone": "0812334455",
+            "other_personal": {},
+        },
+        "experiences": [],
+        "education": [],
+        "skills": ["python"],
+    }
+    prof_b = {
+        "identity": {
+            "full_name": "Dewi Sartika",
+            "email": "dewi@multicv.com",
+            "phone": "0812334455",
+            "other_personal": {},
+        },
+        "experiences": [],
+        "education": [],
+        "skills": ["python", "go"],
+    }
 
     with patch("src.worker.processor.embed_texts", return_value=[[0.1] * 640]):
-        with patch("src.worker.processor.sanitize_file", return_value=san_a), patch(
-            "src.worker.processor.extract_candidate_profile", return_value=prof_a
+        with (
+            patch("src.worker.processor.sanitize_file", return_value=san_a),
+            patch("src.worker.processor.extract_candidate_profile", return_value=prof_a),
         ):
             res1 = await process_document(doc1_id)
             assert res1["status"] == "READY"
 
-        with patch("src.worker.processor.sanitize_file", return_value=san_b), patch(
-            "src.worker.processor.extract_candidate_profile", return_value=prof_b
+        with (
+            patch("src.worker.processor.sanitize_file", return_value=san_b),
+            patch("src.worker.processor.extract_candidate_profile", return_value=prof_b),
         ):
             res2 = await process_document(doc2_id)
             assert res2["status"] == "READY"

@@ -9,6 +9,11 @@ from pathlib import Path
 # Add root directory to python path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+# Add cv-extractor to python path for full extraction fidelity
+cv_extractor_src = "/srv/hermes-control/services/cv-extractor/src"
+if cv_extractor_src not in sys.path:
+    sys.path.insert(0, cv_extractor_src)
+
 # Set test environment before importing application
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault(
