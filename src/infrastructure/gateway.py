@@ -1,87 +1,101 @@
-"""LLM gateway client interfacing with local 9Router proxy with privacy safeguards."""
+"""LLM gateway client interfacing with local 9Router proxy with privacy safeguards (FX-15)."""
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
 import re
-import threading
 import time
 import uuid
 from typing import Any
 
 import httpx
 
+from src.domain.pii import EMAIL_REGEX, PHONE_REGEX
 from src.infrastructure.config import settings
 from src.infrastructure.database import get_connection
 from src.infrastructure.logging import logger
-
-EMAIL_REGEX = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
-PHONE_REGEX = re.compile(r"(?:\+62|62|08)[0-9\s-]{8,15}")
 
 
 class PrivacyViolationError(ValueError):
     pass
 
 
-_key_lock = threading.Lock()
-_cached_api_key: str | None = None
-_cached_key_time: float = 0.0
+def resolve_router_key() -> str:
+    """Resolves LLM Gateway API key strictly from environment configuration."""
+    key = settings.LLM_GATEWAY_KEY or os.environ.get("LLM_GATEWAY_KEY", "")
+    return key.strip()
 
 
 def reset_key_cache() -> None:
-    """Helper for testing to reset cached router key."""
-    global _cached_api_key, _cached_key_time
-    with _key_lock:
-        _cached_api_key = None
-        _cached_key_time = 0.0
+    """Compatibility reset helper."""
+    pass
 
 
-def resolve_router_key() -> str:
-    global _cached_api_key, _cached_key_time
-    if settings.LLM_GATEWAY_KEY:
-        return settings.LLM_GATEWAY_KEY
+def parse_llm_json(content_str: str) -> dict[str, Any] | list[Any] | None:
+    """Robust JSON parser handling raw text, markdown blocks, and outer braces."""
+    if not content_str:
+        return None
+    clean_text = content_str.strip()
 
-    now = time.monotonic()
-    with _key_lock:
-        if _cached_api_key is not None and (now - _cached_key_time) < 300:
-            return _cached_api_key
+    # 1. Direct JSON parse
+    try:
+        return json.loads(clean_text)
+    except json.JSONDecodeError:
+        pass
 
-        db_path = "/srv/apps/9router/data/db/data.sqlite"
-        if os.path.exists(db_path):
-            try:
-                import sqlite3
+    # 2. Markdown code block
+    m = re.search(r"```(?:json)?\s*([\{\[].*?[\}\]])\s*```", clean_text, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except json.JSONDecodeError:
+            pass
 
-                with sqlite3.connect(db_path, timeout=2.0) as conn:
-                    cur = conn.cursor()
-                    cur.execute("SELECT key FROM apiKeys WHERE isActive = 1 LIMIT 1")
-                    row = cur.fetchone()
-                    if row and row[0]:
-                        _cached_api_key = str(row[0])
-                        _cached_key_time = now
-                        return _cached_api_key
-            except Exception as e:
-                logger.warning(f"Failed to read 9router sqlite: {e}")
+    # 3. Outer curly braces (object)
+    start = clean_text.find("{")
+    end = clean_text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(clean_text[start : end + 1])
+        except json.JSONDecodeError:
+            pass
 
-        _cached_api_key = "dev-key"
-        _cached_key_time = now
-        return _cached_api_key
+    # 4. Outer square brackets (array)
+    start_b = clean_text.find("[")
+    end_b = clean_text.rfind("]")
+    if start_b != -1 and end_b != -1 and end_b > start_b:
+        try:
+            return json.loads(clean_text[start_b : end_b + 1])
+        except json.JSONDecodeError:
+            pass
+
+    return None
 
 
 class ModelGateway:
     def __init__(self):
         self.base_url = settings.LLM_GATEWAY_URL
-        self.api_key = resolve_router_key()
-        self.model = settings.LLM_MODEL_JD_COMPILER
-        self.data_policy = settings.LLM_DATA_POLICY
+        self._client: httpx.AsyncClient | None = None
 
-    def verify_redacted_text(self, text: str, task: str = "") -> None:
+    def get_client(self) -> httpx.AsyncClient:
+        """Returns reusable persistent AsyncClient session."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=90.0)
+        return self._client
+
+    async def close(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+
+    def verify_redacted_text(self, text: str) -> None:
         """Pre-flight safety inspection: blocks requests if raw emails or phones are present.
-        For JD compilation, HR recruiter contacts are permitted.
+
+        Applies strictly to ALL tasks without bypass.
         """
-        if task == "jd_compilation":
-            return
         if EMAIL_REGEX.search(text):
             raise PrivacyViolationError("Blocked LLM request: raw unredacted email detected in payload.")
         if PHONE_REGEX.search(text):
@@ -93,20 +107,23 @@ class ModelGateway:
         task: str = "jd_compilation",
         tenant_id: uuid.UUID | None = None,
         json_mode: bool = True,
-    ) -> dict[str, Any] | None:
-        if self.data_policy == "paid_or_local_only":
+    ) -> dict[str, Any] | list[Any] | None:
+        if settings.LLM_DATA_POLICY == "paid_or_local_only":
             logger.warning("LLM call skipped: policy 'paid_or_local_only' restricts dev router usage.")
             return None
 
-        # Concatenate payload for privacy check and hashing
+        # Pre-flight safety inspection
         combined_prompt = " ".join([m.get("content", "") for m in messages])
-        self.verify_redacted_text(combined_prompt, task=task)
+        self.verify_redacted_text(combined_prompt)
+
+        api_key = resolve_router_key()
+        model = settings.LLM_MODEL_VERIFIER if task == "verification" else settings.LLM_MODEL_JD_COMPILER
 
         input_hash = hashlib.sha256(combined_prompt.encode()).hexdigest()
         t0 = time.time()
 
         payload: dict[str, Any] = {
-            "model": self.model,
+            "model": model,
             "messages": messages,
             "temperature": settings.LLM_TEMPERATURE,
             "stream": False,
@@ -116,18 +133,31 @@ class ModelGateway:
 
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {api_key}" if api_key else "",
         }
 
         call_id = uuid.uuid4()
         status_str = "FAILED"
         tokens_in = tokens_out = 0
         output_hash = ""
+        client = self.get_client()
 
-        try:
-            async with httpx.AsyncClient(timeout=90.0) as client:
+        max_retries = 3
+        backoff_sec = 0.5
+
+        for attempt in range(max_retries):
+            try:
                 res = await client.post(f"{self.base_url}/chat/completions", json=payload, headers=headers)
                 latency_ms = int((time.time() - t0) * 1000)
+
+                # Retry on 429 rate limit or 5xx server error
+                if res.status_code in (429, 500, 502, 503, 504) and attempt < max_retries - 1:
+                    logger.warning(
+                        f"9Router returned HTTP {res.status_code}, retrying in {backoff_sec}s (attempt {attempt + 1}/{max_retries})..."
+                    )
+                    await asyncio.sleep(backoff_sec)
+                    backoff_sec *= 2.0
+                    continue
 
                 if res.status_code == 200:
                     status_str = "SUCCESS"
@@ -165,6 +195,7 @@ class ModelGateway:
                         call_id=call_id,
                         tenant_id=tenant_id,
                         task=task,
+                        model=model,
                         input_hash=input_hash,
                         output_hash=output_hash,
                         tokens_in=tokens_in,
@@ -173,55 +204,35 @@ class ModelGateway:
                         status=status_str,
                     )
 
-                    try:
-                        clean_text = content_str.strip()
-                        # 1. Direct parse
-                        try:
-                            return json.loads(clean_text)
-                        except json.JSONDecodeError:
-                            pass
+                    parsed = parse_llm_json(content_str)
+                    if parsed is not None:
+                        return parsed
+                    return {"raw_content": content_str}
 
-                        # 2. Markdown code block
-                        m = re.search(r"```(?:json)?\s*([\{\[].*?[\}\]])\s*```", clean_text, re.DOTALL)
-                        if m:
-                            try:
-                                return json.loads(m.group(1))
-                            except json.JSONDecodeError:
-                                pass
-
-                        # 3. Outer curly braces
-                        start = clean_text.find("{")
-                        end = clean_text.rfind("}")
-                        if start != -1 and end != -1 and end > start:
-                            try:
-                                return json.loads(clean_text[start : end + 1])
-                            except json.JSONDecodeError:
-                                pass
-
-                        # 4. Outer square brackets
-                        start_b = clean_text.find("[")
-                        end_b = clean_text.rfind("]")
-                        if start_b != -1 and end_b != -1 and end_b > start_b:
-                            try:
-                                return json.loads(clean_text[start_b : end_b + 1])
-                            except json.JSONDecodeError:
-                                pass
-
-                        return {"raw_content": content_str}
-                    except Exception:
-                        return {"raw_content": content_str}
                 else:
                     logger.warning(f"9Router returned HTTP {res.status_code}: {res.text[:200]}")
                     return None
-        except Exception as e:
-            logger.warning(f"9Router connection failed ({type(e).__name__}: {e}). Falling back to deterministic rules.")
-            return None
+
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"9Router network error ({e}), retrying in {backoff_sec}s...")
+                    await asyncio.sleep(backoff_sec)
+                    backoff_sec *= 2.0
+                    continue
+                logger.warning(f"9Router connection failed after {max_retries} attempts: {e}")
+                return None
+            except Exception as e:
+                logger.warning(f"9Router call failed: {e}")
+                return None
+
+        return None
 
     async def _record_call(
         self,
         call_id: uuid.UUID,
         tenant_id: uuid.UUID | None,
         task: str,
+        model: str,
         input_hash: str,
         output_hash: str,
         tokens_in: int,
@@ -243,7 +254,7 @@ class ModelGateway:
                         call_id,
                         tenant_id,
                         task,
-                        self.model,
+                        model,
                         input_hash,
                         output_hash,
                         tokens_in,
@@ -258,34 +269,3 @@ class ModelGateway:
 
 
 gateway = ModelGateway()
-
-
-def call_dev_llm(prompt: str, system_prompt: str = "") -> dict[str, Any] | None:
-    """Synchronous / script-friendly caller for dev LLM via 9Router."""
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    try:
-        import asyncio
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop and loop.is_running():
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                res = pool.submit(asyncio.run, gateway.call_chat(messages, task="verification")).result()
-        else:
-            res = asyncio.run(gateway.call_chat(messages, task="verification"))
-
-        if res:
-            return {"status": "SUCCESS", "response": json.dumps(res) if isinstance(res, dict) else str(res)}
-        return {"status": "FAILED"}
-    except Exception as e:
-        logger.warning(f"call_dev_llm failed: {e}")
-        return {"status": "FAILED"}
