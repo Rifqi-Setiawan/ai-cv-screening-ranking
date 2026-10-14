@@ -337,7 +337,7 @@ HTML_CONTENT = """<!DOCTYPE html>
     </div>
     <div class="meta-item">
       <div class="meta-label">Basis Status Audit</div>
-      <div class="meta-value">100% Lulus (Fase 1 s/d Fase 3)</div>
+      <div class="meta-value">Fase 1 s/d 5 Selesai (Ronde 1 Remidiasi)</div>
     </div>
     <div class="meta-item">
       <div class="meta-label">Domain Publik</div>
@@ -425,7 +425,7 @@ HTML_CONTENT = """<!DOCTYPE html>
       <td><strong>Kepatuhan Hukum</strong></td>
       <td>Rentan pelanggaran SE Menaker 2025</td>
       <td>Melanggar UU PDP (Automated Decision)</td>
-      <td><strong>100% Sesuai Regulasi Ketenagakerjaan & UU PDP</strong></td>
+      <td><strong>Kontrol Kepatuhan SE Menaker M/6/2025 & UU PDP No. 27/2022</strong></td>
     </tr>
   </tbody>
 </table>
@@ -594,7 +594,7 @@ HTML_CONTENT = """<!DOCTYPE html>
     <li>Nama lengkap disensor menjadi token <code>[NAMA]</code>.</li>
     <li>Alamat email disensor menjadi token <code>[EMAIL]</code> dan nomor telepon menjadi <code>[TELEPON]</code>.</li>
     <li>Baris demografis (Agama, Status Pernikahan, Tanggal Lahir, Jenis Kelamin) dipotong dari profil evaluasi dan disimpan secara aman ke dalam kolom terenkripsi <code>candidate_identities.other_personal</code>.</li>
-    <li>Menghasilkan <code>matching_profile</code> dan <code>full_text_redacted</code> yang 100% bersih untuk digunakan oleh engine evaluasi.</li>
+    <li>Menghasilkan <code>matching_profile</code> dan <code>full_text_redacted</code> yang telah melalui pembersihan PII dan demografis secara menyeluruh untuk digunakan oleh engine evaluasi.</li>
   </ul>
 </div>
 
