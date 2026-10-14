@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, Response, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -10,6 +12,16 @@ from src.infrastructure.database import get_connection
 
 router = APIRouter(tags=["Metrics"])
 metrics_security = HTTPBearer(auto_error=False)
+
+_cached_metrics_text: str | None = None
+_cached_metrics_time: float = 0.0
+
+
+def clear_metrics_cache() -> None:
+    """Helper for testing to invalidate cached Prometheus metrics."""
+    global _cached_metrics_text, _cached_metrics_time
+    _cached_metrics_text = None
+    _cached_metrics_time = 0.0
 
 
 def verify_metrics_token(credentials: HTTPAuthorizationCredentials | None = Security(metrics_security)) -> None:
@@ -24,112 +36,109 @@ def verify_metrics_token(credentials: HTTPAuthorizationCredentials | None = Secu
 @router.get("/metrics", response_class=Response, dependencies=[Depends(verify_metrics_token)])
 async def get_prometheus_metrics():
     """Returns real Prometheus-formatted operational and business metrics."""
-    async with get_connection() as conn:
-        cur = conn.cursor()
+    global _cached_metrics_text, _cached_metrics_time
+    now = time.monotonic()
+    if _cached_metrics_text is not None and (now - _cached_metrics_time) < 20.0:
+        return Response(content=_cached_metrics_text, media_type="text/plain; version=0.0.4; charset=utf-8")
 
-        # 1. Total documents processed and statuses
-        await cur.execute(
-            """
-            SELECT status, count(*) as cnt
-            FROM documents
-            GROUP BY status
-            """
-        )
+    async with get_connection() as conn, conn.cursor() as cur:
+        # 1. Total processed CVs (status = READY)
+        await cur.execute("SELECT count(*) as cnt FROM documents WHERE status = 'READY'")
+        row = await cur.fetchone()
+        cv_processed_ready = row["cnt"] if row else 0
+
+        # 2. Total documents by status
+        await cur.execute("SELECT status, count(*) as cnt FROM documents GROUP BY status")
         cv_status_counts = {r["status"]: r["cnt"] for r in await cur.fetchall()}
 
-        # 2. Model calls tokens and status
-        await cur.execute(
-            """
-            SELECT count(*) as total_calls,
-                   coalesce(sum(tokens_in), 0) as total_tokens_in,
-                   coalesce(sum(tokens_out), 0) as total_tokens_out,
-                   coalesce(avg(latency_ms), 0) as avg_latency
-            FROM model_calls
-            """
-        )
-        model_row = await cur.fetchone()
-        total_calls = model_row["total_calls"] if model_row else 0
-        tokens_in = model_row["total_tokens_in"] if model_row else 0
-        tokens_out = model_row["total_tokens_out"] if model_row else 0
-        avg_llm_lat_s = float(model_row["avg_latency"] or 0) / 1000.0
-
-        # 3. Document count
-        await cur.execute("SELECT count(*) as cnt FROM documents")
-        doc_cnt = (await cur.fetchone())["cnt"]
-
-        # 4. Failures per reason
+        # 3. Failures per reason (from reasons array)
         await cur.execute(
             """
             SELECT unnest(reasons) as reason, count(*) as cnt
             FROM documents
-            WHERE cardinality(reasons) > 0
+            WHERE status IN ('REJECTED', 'NEEDS_REVIEW') AND cardinality(reasons) > 0
             GROUP BY reason
             """
         )
         fail_reasons = {r["reason"]: r["cnt"] for r in await cur.fetchall()}
 
-    total_cvs = sum(cv_status_counts.values()) or doc_cnt
+        # 4. LLM calls per task
+        await cur.execute("SELECT task, count(*) as cnt FROM model_calls GROUP BY task")
+        llm_task_counts = {r["task"]: r["cnt"] for r in await cur.fetchall()}
+        total_calls = sum(llm_task_counts.values())
+
+        # 5. Tokens in / out and latency
+        await cur.execute(
+            """
+            SELECT coalesce(sum(tokens_in), 0) as total_tokens_in,
+                   coalesce(sum(tokens_out), 0) as total_tokens_out,
+                   coalesce(avg(latency_ms), 0) as avg_latency
+            FROM model_calls
+            """
+        )
+        tokens_row = await cur.fetchone()
+        tokens_in = tokens_row["total_tokens_in"] if tokens_row else 0
+        tokens_out = tokens_row["total_tokens_out"] if tokens_row else 0
+        avg_llm_lat_s = float(tokens_row["avg_latency"] or 0) / 1000.0
+
+        # 6. LLM cache entries
+        await cur.execute("SELECT count(*) as cnt FROM llm_cache")
+        cache_row = await cur.fetchone()
+        cache_entries = cache_row["cnt"] if cache_row else 0
 
     lines = [
-        "# HELP cv_processed_total Total count of CVs processed by the system",
+        "# HELP cv_processed_total Total count of successfully processed CVs (READY)",
         "# TYPE cv_processed_total counter",
-        f"cv_processed_total {total_cvs}",
+        f"cv_processed_total {cv_processed_ready}",
         "",
-        "# HELP cv_processed_hourly Throughput rate of CVs processed per hour",
-        "# TYPE cv_processed_hourly gauge",
-        f"cv_processed_hourly {total_cvs * 12.5:.1f}",
-        "",
-        "# HELP cv_status_total Current distribution of CV quality statuses",
+        "# HELP cv_status_total Current count of documents by status",
         "# TYPE cv_status_total gauge",
     ]
 
-    for st_name, count in cv_status_counts.items():
-        lines.append(f'cv_status_total{{status="{st_name}"}} {count}')
+    for st_name in sorted(cv_status_counts.keys()):
+        lines.append(f'cv_status_total{{status="{st_name}"}} {cv_status_counts[st_name]}')
 
     lines.extend(
         [
             "",
-            "# HELP cv_failures_total Total count of CVs failing quality checks by reason",
+            "# HELP cv_failures_total Total count of CV failures grouped by exact reason",
             "# TYPE cv_failures_total counter",
         ]
     )
-    if fail_reasons:
-        for r_name, count in fail_reasons.items():
-            lines.append(f'cv_failures_total{{reason="{r_name}"}} {count}')
-    else:
-        lines.append('cv_failures_total{reason="ENCRYPTED_FILE"} 1')
-        lines.append('cv_failures_total{reason="EMPTY_DOCUMENT"} 1')
+    for r_name in sorted(fail_reasons.keys()):
+        safe_r = r_name.replace('"', '\\"')
+        lines.append(f'cv_failures_total{{reason="{safe_r}"}} {fail_reasons[r_name]}')
 
     lines.extend(
         [
             "",
-            "# HELP pipeline_stage_latency_seconds Latency of pipeline processing stages in seconds",
-            "# TYPE pipeline_stage_latency_seconds gauge",
-            'pipeline_stage_latency_seconds{stage="sanitizer"} 0.052',
-            'pipeline_stage_latency_seconds{stage="parsing_adapter"} 0.315',
-            'pipeline_stage_latency_seconds{stage="redaction"} 0.041',
-            'pipeline_stage_latency_seconds{stage="embedding_harrier"} 0.478',
-            'pipeline_stage_latency_seconds{stage="scoring_engine"} 0.008',
-            f'pipeline_stage_latency_seconds{{stage="llm_verifier"}} {avg_llm_lat_s:.3f}',
-            "",
-            "# HELP llm_calls_total Total calls made to LLM gateway",
+            "# HELP llm_calls_total Total calls made to LLM gateway by task",
             "# TYPE llm_calls_total counter",
             f"llm_calls_total {total_calls}",
+        ]
+    )
+    for task_name in sorted(llm_task_counts.keys()):
+        lines.append(f'llm_calls_total{{task="{task_name}"}} {llm_task_counts[task_name]}')
+
+    lines.extend(
+        [
             "",
-            "# HELP llm_tokens_total Total prompt and completion tokens processed by LLM",
+            "# HELP llm_tokens_total Total tokens processed by LLM",
             "# TYPE llm_tokens_total counter",
             f'llm_tokens_total{{type="prompt"}} {tokens_in}',
             f'llm_tokens_total{{type="completion"}} {tokens_out}',
             "",
-            "# HELP llm_cost_estimated_usd Estimated LLM cost in USD (development router = 0)",
-            "# TYPE llm_cost_estimated_usd counter",
-            "llm_cost_estimated_usd 0.000000",
+            "# HELP pipeline_stage_latency_seconds Average measured stage latency in seconds",
+            "# TYPE pipeline_stage_latency_seconds gauge",
+            f'pipeline_stage_latency_seconds{{stage="llm_model"}} {avg_llm_lat_s:.3f}',
             "",
-            "# HELP llm_cache_total LLM cache hit and miss counts",
-            "# TYPE llm_cache_total counter",
-            'llm_cache_total{result="hit"} 45',
-            'llm_cache_total{result="miss"} 57',
+            "# HELP llm_cache_entries_total Total cached LLM verification entries in database",
+            "# TYPE llm_cache_entries_total gauge",
+            f"llm_cache_entries_total {cache_entries}",
+            "",
         ]
     )
 
-    return Response(content="\n".join(lines) + "\n", media_type="text/plain; version=0.0.4; charset=utf-8")
+    _cached_metrics_text = "\n".join(lines) + "\n"
+    _cached_metrics_time = now
+    return Response(content=_cached_metrics_text, media_type="text/plain; version=0.0.4; charset=utf-8")
