@@ -26,26 +26,28 @@ async def worker_loop():
             async with get_connection() as conn, conn.cursor() as cur:
                 await cur.execute(
                     """
-                    SELECT id, type, payload, attempts
-                    FROM jobs_queue
-                    WHERE status = 'PENDING' AND run_after <= now()
-                    ORDER BY id ASC
-                    FOR UPDATE SKIP LOCKED
-                    LIMIT 1
+                    UPDATE jobs_queue
+                    SET status = 'RUNNING', locked_at = now(), attempts = attempts + 1
+                    WHERE id = (
+                        SELECT id FROM jobs_queue
+                        WHERE (status = 'PENDING' AND run_after <= now())
+                           OR (status = 'RUNNING' AND locked_at < now() - interval '10 minutes' AND attempts < max_attempts)
+                        ORDER BY id ASC
+                        FOR UPDATE SKIP LOCKED
+                        LIMIT 1
+                    )
+                    RETURNING id, type, payload, attempts, max_attempts
                     """
                 )
                 task = await cur.fetchone()
                 if task:
+                    await conn.commit()
                     task_id = task["id"]
                     q_type = task["type"]
                     payload = task["payload"]
-                    logger.info(f"Picked up job {task_id} of type {q_type}")
-
-                    await cur.execute(
-                        "UPDATE jobs_queue SET status = 'RUNNING', locked_at = now() WHERE id = %s",
-                        (task_id,),
-                    )
-                    await conn.commit()
+                    attempts = task["attempts"]
+                    max_attempts = task["max_attempts"]
+                    logger.info(f"Claimed job {task_id} of type {q_type} (attempt {attempts}/{max_attempts})")
 
                     try:
                         if q_type == "ingest_cv":
@@ -59,15 +61,28 @@ async def worker_loop():
                         await conn.commit()
                         logger.info(f"Job {task_id} completed successfully.")
                     except Exception as err:
-                        logger.error(f"Job {task_id} failed with error: {err}")
-                        await cur.execute(
-                            """
-                            UPDATE jobs_queue
-                            SET status = 'FAILED', error = %s, attempts = attempts + 1
-                            WHERE id = %s
-                            """,
-                            (str(err), task_id),
-                        )
+                        logger.error(f"Job {task_id} failed with error: {err}", exc_info=True)
+                        if attempts < max_attempts:
+                            await cur.execute(
+                                """
+                                UPDATE jobs_queue
+                                SET status = 'PENDING',
+                                    error = %s,
+                                    run_after = now() + (%s * interval '1 minute')
+                                WHERE id = %s
+                                """,
+                                (str(err)[:500], attempts, task_id),
+                            )
+                        else:
+                            await cur.execute(
+                                """
+                                UPDATE jobs_queue
+                                SET status = 'FAILED',
+                                    error = %s
+                                WHERE id = %s
+                                """,
+                                (str(err)[:500], task_id),
+                            )
                         await conn.commit()
                 else:
                     await asyncio.sleep(0.5)
