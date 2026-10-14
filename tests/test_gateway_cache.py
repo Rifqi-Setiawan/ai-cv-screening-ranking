@@ -1,5 +1,5 @@
-import sqlite3
 from unittest.mock import MagicMock, patch
+
 from src.infrastructure.config import settings
 from src.infrastructure.gateway import reset_key_cache, resolve_router_key
 
@@ -15,7 +15,10 @@ def test_resolve_router_key_caches_database_query():
         mock_conn.cursor.return_value = mock_cur
         mock_conn.__enter__.return_value = mock_conn
 
-        with patch("os.path.exists", return_value=True), patch("sqlite3.connect", return_value=mock_conn) as mock_connect:
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("sqlite3.connect", return_value=mock_conn) as mock_connect,
+        ):
             for _ in range(10):
                 key = resolve_router_key()
                 assert key == "sk-cached-test-key"

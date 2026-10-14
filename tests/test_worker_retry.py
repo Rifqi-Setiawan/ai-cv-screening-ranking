@@ -1,6 +1,5 @@
-import json
-import uuid
 import pytest
+
 from src.infrastructure.database import get_connection
 
 

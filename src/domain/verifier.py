@@ -94,7 +94,10 @@ Instruksi PENTING:
 }}
 """
     messages = [
-        {"role": "system", "content": "Kamu adalah JSON-only assistant. Jawab HANYA dalam JSON valid tanpa markdown formatting."},
+        {
+            "role": "system",
+            "content": "Kamu adalah JSON-only assistant. Jawab HANYA dalam JSON valid tanpa markdown formatting.",
+        },
         {"role": "user", "content": prompt},
     ]
 
@@ -104,7 +107,7 @@ Instruksi PENTING:
             gateway.call_chat(messages, task="verification", json_mode=True),
             timeout=10.0,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return rule_state, "", ["VERIFIER_TIMEOUT"]
     except Exception:
         return rule_state, "", ["VERIFIER_ERROR"]

@@ -1,4 +1,3 @@
-import os
 import uuid
 from pathlib import Path
 from unittest.mock import patch
@@ -53,8 +52,9 @@ async def test_processor_error_sets_needs_review_and_rolls_back():
     )
 
     # Mock extract_candidate_profile to raise an unexpected runtime error mid-transaction
-    with patch("src.worker.processor.sanitize_file", return_value=mock_san), patch(
-        "src.worker.processor.extract_candidate_profile", side_effect=RuntimeError("Corrupted PDF structure")
+    with (
+        patch("src.worker.processor.sanitize_file", return_value=mock_san),
+        patch("src.worker.processor.extract_candidate_profile", side_effect=RuntimeError("Corrupted PDF structure")),
     ):
         res = await process_document(doc_id)
         assert res["status"] == "NEEDS_REVIEW"
@@ -127,9 +127,11 @@ async def test_processor_deduplicates_candidate_by_email():
         file_type="pdf",
     )
 
-    with patch("src.worker.processor.sanitize_file", return_value=mock_san), patch(
-        "src.worker.processor.extract_candidate_profile", return_value=mock_profile
-    ), patch("src.worker.processor.embed_texts", return_value=[[0.1] * 640]):
+    with (
+        patch("src.worker.processor.sanitize_file", return_value=mock_san),
+        patch("src.worker.processor.extract_candidate_profile", return_value=mock_profile),
+        patch("src.worker.processor.embed_texts", return_value=[[0.1] * 640]),
+    ):
         res1 = await process_document(doc1_id)
         assert res1["status"] == "READY"
 

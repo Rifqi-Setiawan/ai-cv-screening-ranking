@@ -152,7 +152,10 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
                         candidate_code = existing_cand["candidate_code"]
 
             if candidate_id and not candidate_code:
-                await cur.execute("SELECT candidate_code FROM candidates WHERE id = %s AND tenant_id = %s", (candidate_id, doc["tenant_id"]))
+                await cur.execute(
+                    "SELECT candidate_code FROM candidates WHERE id = %s AND tenant_id = %s",
+                    (candidate_id, doc["tenant_id"]),
+                )
                 cand_row = await cur.fetchone()
                 candidate_code = cand_row["candidate_code"] if cand_row else None
 

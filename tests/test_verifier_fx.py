@@ -1,7 +1,7 @@
 import asyncio
-import uuid
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from src.domain.verifier import verify_requirement_with_llm
 from src.worker.redaction import redact_text
@@ -38,9 +38,10 @@ async def test_verifier_with_valid_text_calls_llm():
         "reason": "Strong Python experience mentioned",
     }
 
-    with patch("src.domain.verifier._get_db_cache", return_value=None), patch(
-        "src.domain.verifier.gateway.call_chat", new_callable=AsyncMock
-    ) as mock_call:
+    with (
+        patch("src.domain.verifier._get_db_cache", return_value=None),
+        patch("src.domain.verifier.gateway.call_chat", new_callable=AsyncMock) as mock_call,
+    ):
         mock_call.return_value = mock_llm_res
         state, quote, flags = await verify_requirement_with_llm(cv_text, req, "PARTIAL", snippets)
         assert state == "STRONG"

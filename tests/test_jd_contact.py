@@ -1,4 +1,5 @@
 import pytest
+
 from src.domain.jd_compiler import compile_job_requirements
 
 

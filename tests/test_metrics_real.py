@@ -1,6 +1,8 @@
+import uuid
+
 import httpx
 import pytest
-import uuid
+
 from src.api.routes.metrics import clear_metrics_cache
 from src.infrastructure.config import settings
 from src.infrastructure.database import get_connection
