@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from src.api.dependencies import get_current_user, require_role
+from src.api.dependencies import get_current_user, get_job_for_tenant, require_role
 from src.domain.models import JobCreate, JobResponse, JobUpdate, User, UserRole
 from src.infrastructure.database import get_connection
 
@@ -86,6 +86,7 @@ async def get_job_requirements(
     current_user: User = Depends(get_current_user),
 ) -> list[dict]:
     async with get_connection() as conn, conn.cursor() as cur:
+        await get_job_for_tenant(cur, job_id, current_user.tenant_id)
         # Find latest requirement_set for this job
         await cur.execute(
             """
@@ -230,7 +231,7 @@ async def update_job(
         else:
             row = existing
 
-        await cur.execute("SELECT count(id) as count FROM documents WHERE job_id = %s", (job_id,))
+        await cur.execute("SELECT count(id) as count FROM documents WHERE job_id = %s AND tenant_id = %s", (job_id, current_user.tenant_id))
         doc_row = await cur.fetchone()
         cv_count = doc_row["count"] if doc_row else 0
 
@@ -266,13 +267,13 @@ async def delete_job(
         await cur.execute(
             """
             DELETE FROM reviews
-            WHERE run_id IN (SELECT id FROM screening_runs WHERE job_id = %s)
+            WHERE run_id IN (SELECT id FROM screening_runs WHERE job_id = %s AND tenant_id = %s)
             """,
-            (job_id,),
+            (job_id, current_user.tenant_id),
         )
 
         # 2. Delete screening_runs for this job (child scores/evidence cascade)
-        await cur.execute("DELETE FROM screening_runs WHERE job_id = %s", (job_id,))
+        await cur.execute("DELETE FROM screening_runs WHERE job_id = %s AND tenant_id = %s", (job_id, current_user.tenant_id))
 
         # 3. Delete the job (documents & requirement_sets cascade)
         await cur.execute(

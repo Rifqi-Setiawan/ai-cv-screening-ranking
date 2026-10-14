@@ -13,7 +13,7 @@ from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 
-from src.api.dependencies import get_current_user, require_role
+from src.api.dependencies import get_current_user, get_job_for_tenant, require_role
 from src.domain.models import User, UserRole
 from src.infrastructure.config import settings
 from src.infrastructure.database import get_connection
@@ -43,15 +43,9 @@ async def upload_cvs(
     files: list[UploadFile] = File(...),
     current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.RECRUITER])),
 ) -> dict[str, Any]:
-    # Verify job exists
+    # Verify job exists for tenant
     async with get_connection() as conn, conn.cursor() as cur:
-        await cur.execute(
-            "SELECT id, tenant_id FROM jobs WHERE id = %s AND tenant_id = %s",
-            (job_id, current_user.tenant_id),
-        )
-        job_row = await cur.fetchone()
-        if not job_row:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job opening not found")
+        await get_job_for_tenant(cur, job_id, current_user.tenant_id)
 
     vault_dir = Path(settings.STORAGE_VAULT_PATH) / str(current_user.tenant_id)
     vault_dir.mkdir(parents=True, exist_ok=True)
@@ -177,6 +171,7 @@ async def get_cvs_status(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     async with get_connection() as conn, conn.cursor() as cur:
+        await get_job_for_tenant(cur, job_id, current_user.tenant_id)
         await cur.execute(
             """
             SELECT d.id, d.original_filename, d.status, d.reasons, d.flags, d.duplicate_of,
@@ -227,12 +222,14 @@ async def clear_job_cvs(
 ) -> dict[str, Any]:
     """Clears all uploaded documents, profiles, and score artifacts for a job."""
     async with get_connection() as conn, conn.cursor() as cur:
+        await get_job_for_tenant(cur, job_id, current_user.tenant_id)
         await cur.execute(
             """
             DELETE FROM candidate_scores
             WHERE document_id IN (SELECT id FROM documents WHERE job_id = %s AND tenant_id = %s)
+              AND tenant_id = %s
             """,
-            (job_id, current_user.tenant_id),
+            (job_id, current_user.tenant_id, current_user.tenant_id),
         )
         await cur.execute(
             """
@@ -240,16 +237,18 @@ async def clear_job_cvs(
             WHERE profile_id IN (
                 SELECT id FROM candidate_profiles 
                 WHERE document_id IN (SELECT id FROM documents WHERE job_id = %s AND tenant_id = %s)
-            )
+                  AND tenant_id = %s
+            ) AND tenant_id = %s
             """,
-            (job_id, current_user.tenant_id),
+            (job_id, current_user.tenant_id, current_user.tenant_id, current_user.tenant_id),
         )
         await cur.execute(
             """
             DELETE FROM candidate_profiles
             WHERE document_id IN (SELECT id FROM documents WHERE job_id = %s AND tenant_id = %s)
+              AND tenant_id = %s
             """,
-            (job_id, current_user.tenant_id),
+            (job_id, current_user.tenant_id, current_user.tenant_id),
         )
         await cur.execute(
             """
@@ -278,6 +277,7 @@ async def export_extractions(
 ) -> dict[str, Any]:
     """Returns extraction output formatted exactly for `evaluate.py --extraction`."""
     async with get_connection() as conn, conn.cursor() as cur:
+        await get_job_for_tenant(cur, job_id, current_user.tenant_id)
         await cur.execute(
             """
             SELECT d.original_filename, cp.profile

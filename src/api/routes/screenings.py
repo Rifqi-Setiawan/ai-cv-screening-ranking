@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from src.api.dependencies import get_current_user, require_role
+from src.api.dependencies import get_current_user, get_job_for_tenant, require_role
 from src.domain.explainer import generate_explanation
 from src.domain.kind_rules import (
     eval_achievement,
@@ -42,41 +42,33 @@ async def trigger_screening_run(
     """Triggers an immutable screening run over all ready CVs for the job."""
     async with get_connection() as conn:
         cur = conn.cursor()
+        await get_job_for_tenant(cur, job_id, current_user.tenant_id)
 
         # 1. Fetch latest approved requirement set for the job
         await cur.execute(
             """
             SELECT id, version, category_weights FROM requirement_sets
-            WHERE job_id = %s AND status = 'APPROVED'
+            WHERE job_id = %s AND tenant_id = %s AND status = 'APPROVED'
             ORDER BY version DESC LIMIT 1
             """,
-            (job_id,),
+            (job_id, current_user.tenant_id),
         )
         req_set = await cur.fetchone()
         if not req_set:
-            # Fallback to latest requirement set regardless of status for testing
-            await cur.execute(
-                """
-                SELECT id, version, category_weights FROM requirement_sets
-                WHERE job_id = %s
-                ORDER BY version DESC LIMIT 1
-                """,
-                (job_id,),
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Kriteria belum disetujui. Setujui requirement set terlebih dahulu.",
             )
-            req_set = await cur.fetchone()
-
-        if not req_set:
-            raise HTTPException(status_code=404, detail="No requirement set found for job")
 
         # 2. Fetch requirements in set
         await cur.execute(
             """
             SELECT requirement_id, description, category, kind, importance, weight, concepts, params
             FROM requirements
-            WHERE requirement_set_id = %s
+            WHERE requirement_set_id = %s AND tenant_id = %s
             ORDER BY requirement_id
             """,
-            (req_set["id"],),
+            (req_set["id"], current_user.tenant_id),
         )
         requirements = await cur.fetchall()
         if not requirements:
@@ -119,10 +111,10 @@ async def trigger_screening_run(
                    d.status as quality_status, d.flags, d.reasons, d.candidate_id,
                    cp.matching_profile
             FROM documents d
-            LEFT JOIN candidate_profiles cp ON cp.document_id = d.id
-            WHERE d.job_id = %s
+            LEFT JOIN candidate_profiles cp ON cp.document_id = d.id AND cp.tenant_id = d.tenant_id
+            WHERE d.job_id = %s AND d.tenant_id = %s
             """,
-            (job_id,),
+            (job_id, current_user.tenant_id),
         )
         cv_rows = await cur.fetchall()
 
@@ -198,7 +190,7 @@ async def trigger_screening_run(
             strong_count = sum(1 for v in states_map.values() if v == "STRONG")
 
             # Ensure candidate exists in candidates table
-            await cur.execute("SELECT id FROM candidates WHERE id = %s", (cand_id,))
+            await cur.execute("SELECT id FROM candidates WHERE id = %s AND tenant_id = %s", (cand_id, current_user.tenant_id))
             if not await cur.fetchone():
                 c_code = f"C-{str(uuid.uuid4())[:8]}"
                 await cur.execute(
@@ -245,7 +237,7 @@ async def trigger_screening_run(
             s_res = c_data["score_res"]
 
             # Ensure candidate record exists in `candidates` table before inserting score
-            await cur.execute("SELECT id FROM candidates WHERE id = %s", (cv_id_val,))
+            await cur.execute("SELECT id FROM candidates WHERE id = %s AND tenant_id = %s", (cv_id_val, current_user.tenant_id))
             if not await cur.fetchone():
                 await cur.execute("SELECT nextval('candidate_code_seq') as seq")
                 seq_row = await cur.fetchone()
@@ -260,8 +252,8 @@ async def trigger_screening_run(
                     (cv_id_val, current_user.tenant_id, cand_code),
                 )
                 await cur.execute(
-                    "UPDATE documents SET candidate_id = %s WHERE id = %s AND candidate_id IS NULL",
-                    (cv_id_val, doc_id_val),
+                    "UPDATE documents SET candidate_id = %s WHERE id = %s AND tenant_id = %s AND candidate_id IS NULL",
+                    (cv_id_val, doc_id_val, current_user.tenant_id),
                 )
 
             raw_sc = s_res.raw_score if s_res else 0.0
@@ -356,15 +348,16 @@ async def get_latest_screening(
     """Returns the latest completed screening run and its rankings for a job."""
     async with get_connection() as conn:
         cur = conn.cursor()
+        await get_job_for_tenant(cur, job_id, current_user.tenant_id)
         await cur.execute(
             """
             SELECT id, status, as_of, started_at, finished_at
             FROM screening_runs
-            WHERE job_id = %s AND status = 'DONE'
+            WHERE job_id = %s AND tenant_id = %s AND status = 'DONE'
             ORDER BY COALESCE(finished_at, started_at) DESC NULLS LAST
             LIMIT 1
             """,
-            (job_id,),
+            (job_id, current_user.tenant_id),
         )
         latest_run = await cur.fetchone()
         if not latest_run:
@@ -376,19 +369,19 @@ async def get_latest_screening(
             WITH req_summary AS (
                 SELECT candidate_id, jsonb_object_agg(requirement_id, state) as states
                 FROM requirement_scores
-                WHERE run_id = %s
+                WHERE run_id = %s AND tenant_id = %s
                 GROUP BY candidate_id
             )
             SELECT cs.rank, cs.candidate_id as cv_id, cs.candidate_id, d.original_filename as file_name, cs.final_score, cs.raw_score,
                    cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status,
                    COALESCE(rs.states, '{}'::jsonb) as requirement_states
             FROM candidate_scores cs
-            JOIN documents d ON cs.document_id = d.id
+            JOIN documents d ON cs.document_id = d.id AND d.tenant_id = cs.tenant_id
             LEFT JOIN req_summary rs ON rs.candidate_id = cs.candidate_id
-            WHERE cs.run_id = %s
+            WHERE cs.run_id = %s AND cs.tenant_id = %s
             ORDER BY cs.rank ASC NULLS LAST, cs.final_score DESC
             """,
-            (run_id, run_id),
+            (run_id, current_user.tenant_id, run_id, current_user.tenant_id),
         )
         rows = await cur.fetchall()
         return {
@@ -413,24 +406,32 @@ async def get_rankings(
     """Returns candidate rankings for a completed screening run."""
     async with get_connection() as conn:
         cur = conn.cursor()
+        await get_job_for_tenant(cur, job_id, current_user.tenant_id)
+        await cur.execute(
+            "SELECT id FROM screening_runs WHERE id = %s AND job_id = %s AND tenant_id = %s",
+            (run_id, job_id, current_user.tenant_id),
+        )
+        if not await cur.fetchone():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screening run not found")
+
         await cur.execute(
             """
             WITH req_summary AS (
                 SELECT candidate_id, jsonb_object_agg(requirement_id, state) as states
                 FROM requirement_scores
-                WHERE run_id = %s
+                WHERE run_id = %s AND tenant_id = %s
                 GROUP BY candidate_id
             )
             SELECT cs.rank, cs.candidate_id as cv_id, cs.candidate_id, d.original_filename as file_name, cs.final_score, cs.raw_score,
                    cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status,
                    COALESCE(rs.states, '{}'::jsonb) as requirement_states
             FROM candidate_scores cs
-            JOIN documents d ON cs.document_id = d.id
+            JOIN documents d ON cs.document_id = d.id AND d.tenant_id = cs.tenant_id
             LEFT JOIN req_summary rs ON rs.candidate_id = cs.candidate_id
-            WHERE cs.run_id = %s
+            WHERE cs.run_id = %s AND cs.tenant_id = %s
             ORDER BY cs.rank ASC NULLS LAST, cs.final_score DESC
             """,
-            (run_id, run_id),
+            (run_id, current_user.tenant_id, run_id, current_user.tenant_id),
         )
         rows = await cur.fetchall()
         return {
@@ -450,6 +451,13 @@ async def get_candidate_detail(
     """Returns detailed evaluation, requirement states, evidence quotes, and template reasoning."""
     async with get_connection() as conn:
         cur = conn.cursor()
+        await get_job_for_tenant(cur, job_id, current_user.tenant_id)
+        await cur.execute(
+            "SELECT id FROM screening_runs WHERE id = %s AND job_id = %s AND tenant_id = %s",
+            (run_id, job_id, current_user.tenant_id),
+        )
+        if not await cur.fetchone():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screening run not found")
 
         # Fetch candidate score
         await cur.execute(
@@ -457,10 +465,10 @@ async def get_candidate_detail(
             SELECT cs.rank, cs.final_score, cs.raw_score, cs.band, cs.recommendation,
                    cs.category_scores as category_breakdown, cs.flags, d.original_filename as file_name
             FROM candidate_scores cs
-            JOIN documents d ON cs.document_id = d.id
-            WHERE cs.run_id = %s AND cs.candidate_id = %s
+            JOIN documents d ON cs.document_id = d.id AND d.tenant_id = cs.tenant_id
+            WHERE cs.run_id = %s AND cs.candidate_id = %s AND cs.tenant_id = %s
             """,
-            (run_id, cv_id),
+            (run_id, cv_id, current_user.tenant_id),
         )
         cand_score = await cur.fetchone()
         if not cand_score:
@@ -477,12 +485,12 @@ async def get_candidate_detail(
                    COALESCE(r.weight, 10.0) as weight,
                    r.source_text
             FROM requirement_scores rs
-            JOIN screening_runs sr ON sr.id = rs.run_id
-            LEFT JOIN requirements r ON r.requirement_set_id = sr.requirement_set_id AND r.requirement_id = rs.requirement_id
-            WHERE rs.run_id = %s AND rs.candidate_id = %s
+            JOIN screening_runs sr ON sr.id = rs.run_id AND sr.tenant_id = rs.tenant_id
+            LEFT JOIN requirements r ON r.requirement_set_id = sr.requirement_set_id AND r.requirement_id = rs.requirement_id AND r.tenant_id = rs.tenant_id
+            WHERE rs.run_id = %s AND rs.candidate_id = %s AND rs.tenant_id = %s
             ORDER BY rs.requirement_id
             """,
-            (run_id, cv_id),
+            (run_id, cv_id, current_user.tenant_id),
         )
         req_rows = await cur.fetchall()
 
@@ -494,9 +502,9 @@ async def get_candidate_detail(
                 """
                 SELECT quote, context, verified
                 FROM evidence
-                WHERE run_id = %s AND candidate_id = %s AND requirement_id = %s
+                WHERE run_id = %s AND candidate_id = %s AND requirement_id = %s AND tenant_id = %s
                 """,
-                (run_id, cv_id, r["requirement_id"]),
+                (run_id, cv_id, r["requirement_id"], current_user.tenant_id),
             )
             evs = await cur.fetchall()
             ev_map[r["requirement_id"]] = [dict(e) for e in evs]
@@ -598,13 +606,16 @@ async def export_for_evaluator(
     """Exports run results matching exact eval_export.schema.json format for evaluate.py."""
     async with get_connection() as conn:
         cur = conn.cursor()
+        await get_job_for_tenant(cur, job_id, current_user.tenant_id)
 
-        await cur.execute("SELECT external_ref as code FROM jobs WHERE id = %s", (job_id,))
+        await cur.execute("SELECT external_ref as code FROM jobs WHERE id = %s AND tenant_id = %s", (job_id, current_user.tenant_id))
         job_row = await cur.fetchone()
         job_code = job_row["code"] if job_row and job_row["code"] else "JD-01"
 
-        await cur.execute("SELECT as_of FROM screening_runs WHERE id = %s", (run_id,))
+        await cur.execute("SELECT as_of FROM screening_runs WHERE id = %s AND job_id = %s AND tenant_id = %s", (run_id, job_id, current_user.tenant_id))
         run_row = await cur.fetchone()
+        if not run_row:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Screening run not found")
         as_of = str(run_row["as_of"]) if run_row else "2026-10-01"
 
         await cur.execute(
@@ -613,11 +624,11 @@ async def export_for_evaluator(
                    cs.recommendation, cs.category_scores as category_breakdown, cs.flags,
                    d.original_filename as file_name, d.status as quality_status, d.reasons
             FROM candidate_scores cs
-            JOIN documents d ON cs.document_id = d.id
-            WHERE cs.run_id = %s
+            JOIN documents d ON cs.document_id = d.id AND d.tenant_id = cs.tenant_id
+            WHERE cs.run_id = %s AND cs.tenant_id = %s
             ORDER BY cs.rank ASC NULLS LAST
             """,
-            (run_id,),
+            (run_id, current_user.tenant_id),
         )
         score_rows = await cur.fetchall()
 
@@ -628,9 +639,9 @@ async def export_for_evaluator(
                 """
                 SELECT requirement_id, state
                 FROM requirement_scores
-                WHERE run_id = %s AND candidate_id = %s
+                WHERE run_id = %s AND candidate_id = %s AND tenant_id = %s
                 """,
-                (run_id, r["cv_id"]),
+                (run_id, r["cv_id"], current_user.tenant_id),
             )
             req_states = {row["requirement_id"]: row["state"] for row in await cur.fetchall()}
 

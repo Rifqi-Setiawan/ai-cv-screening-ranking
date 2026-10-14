@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from src.api.dependencies import get_current_user, require_role
@@ -37,19 +37,19 @@ async def reveal_identity(
     async with get_connection() as conn:
         cur = conn.cursor()
 
-        # Find candidate identity
+        # Find candidate identity strictly within tenant
         await cur.execute(
             """
             SELECT c.id, c.candidate_code, ci.full_name, ci.email, ci.phone
             FROM candidates c
-            LEFT JOIN candidate_identities ci ON ci.candidate_id = c.id
-            WHERE c.id::text = %s OR c.candidate_code = %s
+            LEFT JOIN candidate_identities ci ON ci.candidate_id = c.id AND ci.tenant_id = c.tenant_id
+            WHERE (c.id::text = %s OR c.candidate_code = %s) AND c.tenant_id = %s
             """,
-            (candidate_id, candidate_id),
+            (candidate_id, candidate_id, current_user.tenant_id),
         )
         cand_row = await cur.fetchone()
 
-        full_name = "Candidate"
+        full_name = None
         email = None
         phone = None
 
@@ -58,18 +58,20 @@ async def reveal_identity(
             email = cand_row.get("email")
             phone = cand_row.get("phone")
         else:
-            # Fallback search documents
+            # Fallback search documents strictly within tenant
             await cur.execute(
                 """
                 SELECT original_filename
                 FROM documents
-                WHERE id::text = %s
+                WHERE id::text = %s AND tenant_id = %s
                 """,
-                (candidate_id,),
+                (candidate_id, current_user.tenant_id),
             )
             doc_row = await cur.fetchone()
             if doc_row:
                 full_name = doc_row["original_filename"]
+            else:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kandidat tidak ditemukan")
 
         # Log to audit_logs
         await cur.execute(
@@ -89,7 +91,7 @@ async def reveal_identity(
         return {
             "candidate_id": candidate_id,
             "revealed": True,
-            "full_name": full_name,
+            "full_name": full_name or "Candidate",
             "email": email,
             "phone": phone,
             "note": "Identity revealed and recorded in audit log.",
@@ -106,14 +108,31 @@ async def object_to_scoring(
     async with get_connection() as conn:
         cur = conn.cursor()
 
-        # 1. Update candidate status in candidates table if present
+        # Check candidate exists in tenant
+        await cur.execute(
+            """
+            SELECT id FROM candidates
+            WHERE (id::text = %s OR candidate_code = %s) AND tenant_id = %s
+            """,
+            (candidate_id, candidate_id, current_user.tenant_id),
+        )
+        c_found = await cur.fetchone()
+        if not c_found:
+            await cur.execute(
+                "SELECT id FROM documents WHERE id::text = %s AND tenant_id = %s",
+                (candidate_id, current_user.tenant_id),
+            )
+            if not await cur.fetchone():
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kandidat tidak ditemukan")
+
+        # 1. Update candidate status in candidates table
         await cur.execute(
             """
             UPDATE candidates
             SET status = 'MANUAL_ONLY'
-            WHERE id::text = %s OR candidate_code = %s
+            WHERE (id::text = %s OR candidate_code = %s) AND tenant_id = %s
             """,
-            (candidate_id, candidate_id),
+            (candidate_id, candidate_id, current_user.tenant_id),
         )
 
         # 2. Update candidate_scores table
@@ -121,9 +140,9 @@ async def object_to_scoring(
             """
             UPDATE candidate_scores
             SET recommendation = 'MANUAL_CHECK', band = 'R'
-            WHERE candidate_id::text = %s
+            WHERE (candidate_id::text = %s OR document_id::text = %s) AND tenant_id = %s
             """,
-            (candidate_id,),
+            (candidate_id, candidate_id, current_user.tenant_id),
         )
 
         # 3. Log to audit_logs
@@ -157,17 +176,27 @@ async def delete_candidate_permanently(
     async with get_connection() as conn:
         cur = conn.cursor()
 
-        # 1. Retrieve document and file details before deletion
+        # 1. Retrieve document and file details before deletion strictly by candidate_id / doc_id within tenant
         await cur.execute(
             """
             SELECT d.id as doc_id, d.original_filename as file_name, d.storage_key, d.candidate_id, cp.id as profile_id
             FROM documents d
-            LEFT JOIN candidate_profiles cp ON cp.document_id = d.id
-            WHERE d.id::text = %s OR d.original_filename = %s OR d.candidate_id::text = %s
+            LEFT JOIN candidate_profiles cp ON cp.document_id = d.id AND cp.tenant_id = d.tenant_id
+            WHERE (d.id::text = %s OR d.candidate_id::text = %s) AND d.tenant_id = %s
             """,
-            (candidate_id, candidate_id, candidate_id),
+            (candidate_id, candidate_id, current_user.tenant_id),
         )
         doc_rows = await cur.fetchall()
+
+        # Check candidate table if no doc_rows found
+        await cur.execute(
+            "SELECT id FROM candidates WHERE (id::text = %s OR candidate_code = %s) AND tenant_id = %s",
+            (candidate_id, candidate_id, current_user.tenant_id),
+        )
+        cand_exists = await cur.fetchone()
+
+        if not doc_rows and not cand_exists:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Kandidat tidak ditemukan")
 
         deleted_files = []
         for row in doc_rows:
@@ -189,10 +218,22 @@ async def delete_candidate_permanently(
 
             # Wipe related records
             if prof_id:
-                await cur.execute("DELETE FROM profile_chunks WHERE profile_id = %s", (prof_id,))
-                await cur.execute("DELETE FROM skill_mentions WHERE profile_id = %s", (prof_id,))
-                await cur.execute("DELETE FROM candidate_profiles WHERE id = %s", (prof_id,))
-            await cur.execute("DELETE FROM candidate_identities WHERE candidate_id = %s", (cand_db_id,))
+                await cur.execute(
+                    "DELETE FROM profile_chunks WHERE profile_id = %s AND tenant_id = %s",
+                    (prof_id, current_user.tenant_id),
+                )
+                await cur.execute(
+                    "DELETE FROM skill_mentions WHERE profile_id = %s AND tenant_id = %s",
+                    (prof_id, current_user.tenant_id),
+                )
+                await cur.execute(
+                    "DELETE FROM candidate_profiles WHERE id = %s AND tenant_id = %s",
+                    (prof_id, current_user.tenant_id),
+                )
+            await cur.execute(
+                "DELETE FROM candidate_identities WHERE candidate_id = %s AND tenant_id = %s",
+                (cand_db_id, current_user.tenant_id),
+            )
 
             # In candidate_scores, turn into an anonymous tombstone
             await cur.execute(
@@ -200,9 +241,9 @@ async def delete_candidate_permanently(
                 UPDATE candidate_scores
                 SET raw_score = 0, final_score = 0, band = 'R', recommendation = 'MANUAL_CHECK',
                     category_scores = '{}'::jsonb, flags = array_append(flags, 'TOMBSTONE_DELETED')
-                WHERE candidate_id = %s
+                WHERE candidate_id = %s AND tenant_id = %s
                 """,
-                (cand_db_id,),
+                (cand_db_id, current_user.tenant_id),
             )
 
             # In evidence table, wipe quotes
@@ -210,22 +251,22 @@ async def delete_candidate_permanently(
                 """
                 UPDATE evidence
                 SET quote = '[DELETED_PER_GDPR]'
-                WHERE candidate_id = %s
+                WHERE candidate_id = %s AND tenant_id = %s
                 """,
-                (cand_db_id,),
+                (cand_db_id, current_user.tenant_id),
             )
 
             # Delete from documents table
-            await cur.execute("DELETE FROM documents WHERE id = %s", (doc_id,))
+            await cur.execute("DELETE FROM documents WHERE id = %s AND tenant_id = %s", (doc_id, current_user.tenant_id))
 
-        # 2. Mark tombstone in candidates table if present
+        # 2. Mark tombstone in candidates table
         await cur.execute(
             """
             UPDATE candidates
             SET status = 'DELETED', deleted_at = now()
-            WHERE id::text = %s OR candidate_code = %s
+            WHERE (id::text = %s OR candidate_code = %s) AND tenant_id = %s
             """,
-            (candidate_id, candidate_id),
+            (candidate_id, candidate_id, current_user.tenant_id),
         )
 
         # 3. Invalidate cache entries
@@ -233,7 +274,6 @@ async def delete_candidate_permanently(
         if cache_path.exists():
             try:
                 cache_data = json.loads(cache_path.read_text())
-                # Clean any entry containing candidate identifier
                 cleaned_cache = {k: v for k, v in cache_data.items() if candidate_id not in str(v)}
                 cache_path.write_text(json.dumps(cleaned_cache, indent=2))
             except Exception:

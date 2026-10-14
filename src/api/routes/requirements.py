@@ -9,7 +9,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from src.api.dependencies import require_role
+from src.api.dependencies import get_job_for_tenant, require_role
+from src.api.middleware.rate_limiter import check_rate_limit
 from src.domain.jd_compiler import compile_job_requirements
 from src.domain.models import User, UserRole
 from src.domain.policy_linter import lint_text
@@ -43,21 +44,15 @@ async def compile_requirements(
     current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.RECRUITER])),
 ) -> dict[str, Any]:
     async with get_connection() as conn, conn.cursor() as cur:
-        await cur.execute(
-            "SELECT id, tenant_id, jd_text FROM jobs WHERE id = %s AND tenant_id = %s",
-            (job_id, current_user.tenant_id),
-        )
-        job = await cur.fetchone()
-        if not job:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job opening not found")
+        job = await get_job_for_tenant(cur, job_id, current_user.tenant_id)
 
         # Compile JD requirements
         compiled = await compile_job_requirements(job["jd_text"], tenant_id=current_user.tenant_id)
 
         # Get next version
         await cur.execute(
-            "SELECT COALESCE(MAX(version), 0) + 1 as next_ver FROM requirement_sets WHERE job_id = %s",
-            (job_id,),
+            "SELECT COALESCE(MAX(version), 0) + 1 as next_ver FROM requirement_sets WHERE job_id = %s AND tenant_id = %s",
+            (job_id, current_user.tenant_id),
         )
         ver_row = await cur.fetchone()
         next_ver = ver_row["next_ver"]
@@ -122,13 +117,7 @@ async def import_approved_requirements(
     current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.RECRUITER])),
 ) -> dict[str, Any]:
     async with get_connection() as conn, conn.cursor() as cur:
-        await cur.execute(
-            "SELECT id, tenant_id FROM jobs WHERE id = %s AND tenant_id = %s",
-            (job_id, current_user.tenant_id),
-        )
-        job = await cur.fetchone()
-        if not job:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job opening not found")
+        job = await get_job_for_tenant(cur, job_id, current_user.tenant_id)
 
         set_id = uuid.uuid4()
         await cur.execute(
@@ -154,7 +143,10 @@ async def import_approved_requirements(
         actual_set_id = set_row["id"]
 
         # Clear existing requirements if overwriting version
-        await cur.execute("DELETE FROM requirements WHERE requirement_set_id = %s", (actual_set_id,))
+        await cur.execute(
+            "DELETE FROM requirements WHERE requirement_set_id = %s AND tenant_id = %s",
+            (actual_set_id, current_user.tenant_id),
+        )
 
         for r in req.requirements:
             await cur.execute(
@@ -211,14 +203,15 @@ async def add_manual_requirement(
     flags = lint_res["risky_flags"]
 
     async with get_connection() as conn, conn.cursor() as cur:
-        # Check latest requirement set for this job
+        await get_job_for_tenant(cur, job_id, current_user.tenant_id)
+        # Check latest requirement set for this job within tenant
         await cur.execute(
             """
             SELECT id, version, status, category_weights FROM requirement_sets
-            WHERE job_id = %s
+            WHERE job_id = %s AND tenant_id = %s
             ORDER BY version DESC LIMIT 1
             """,
-            (job_id,),
+            (job_id, current_user.tenant_id),
         )
         latest_set = await cur.fetchone()
         if not latest_set:
@@ -310,13 +303,14 @@ async def approve_requirements(
 ) -> dict[str, Any]:
     """Approves the requirement set. Strictly blocks approval if any PROHIBITED criteria are present."""
     async with get_connection() as conn, conn.cursor() as cur:
+        await get_job_for_tenant(cur, job_id, current_user.tenant_id)
         await cur.execute(
             """
             SELECT id, version, status FROM requirement_sets
-            WHERE job_id = %s AND status = 'DRAFT'
+            WHERE job_id = %s AND tenant_id = %s AND status = 'DRAFT'
             ORDER BY version DESC LIMIT 1
             """,
-            (job_id,),
+            (job_id, current_user.tenant_id),
         )
         set_row = await cur.fetchone()
         if not set_row:
@@ -327,7 +321,7 @@ async def approve_requirements(
         set_id = set_row["id"]
 
         # Check for any prohibited flags across requirements and raw JD text
-        await cur.execute("SELECT jd_text FROM jobs WHERE id = %s", (job_id,))
+        await cur.execute("SELECT jd_text FROM jobs WHERE id = %s AND tenant_id = %s", (job_id, current_user.tenant_id))
         job_row = await cur.fetchone()
         prohibited_violations = []
 
@@ -346,9 +340,9 @@ async def approve_requirements(
             """
             SELECT requirement_id, description, lint_flags
             FROM requirements
-            WHERE requirement_set_id = %s
+            WHERE requirement_set_id = %s AND tenant_id = %s
             """,
-            (set_id,),
+            (set_id, current_user.tenant_id),
         )
         req_rows = await cur.fetchall()
 
@@ -379,10 +373,10 @@ async def approve_requirements(
             """
             UPDATE requirement_sets
             SET status = 'APPROVED', approved_by = %s, approved_at = now()
-            WHERE id = %s
+            WHERE id = %s AND tenant_id = %s
             RETURNING id, version, status, approved_at
             """,
-            (current_user.id, set_id),
+            (current_user.id, set_id, current_user.tenant_id),
         )
         approved_row = await cur.fetchone()
         await conn.commit()
@@ -402,14 +396,20 @@ class CompilePreviewRequest(BaseModel):
 preview_router = APIRouter(prefix="/api/v1/requirements", tags=["Requirements"])
 
 
-@preview_router.post("/compile-preview")
-async def compile_preview_endpoint(req: CompilePreviewRequest) -> dict[str, Any]:
+@preview_router.post(
+    "/compile-preview",
+    dependencies=[Depends(check_rate_limit(max_requests=10, window_seconds=60))],
+)
+async def compile_preview_endpoint(
+    req: CompilePreviewRequest,
+    current_user: User = Depends(require_role([UserRole.ADMIN, UserRole.RECRUITER, UserRole.HIRING_MANAGER])),
+) -> dict[str, Any]:
     """Compile raw Job Description text into structured requirements with concept mapping and policy linter."""
     if not req.jd_text or len(req.jd_text.strip()) < 10:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Teks Job Description minimal 10 karakter.",
         )
-    compiled = await compile_job_requirements(req.jd_text)
+    compiled = await compile_job_requirements(req.jd_text, tenant_id=current_user.tenant_id)
     return compiled
 
