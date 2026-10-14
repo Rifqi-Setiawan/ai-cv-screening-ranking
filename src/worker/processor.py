@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -219,6 +220,53 @@ async def process_document(doc_id: uuid.UUID) -> dict[str, Any]:
             )
 
             quality_flags = list(set(san.flags + raw_profile.get("quality", {}).get("warnings", [])))
+
+            # Check text-level duplication across other documents in the same job
+            norm_text = re.sub(r"\s+", " ", full_text_redacted.lower()).strip()
+            if norm_text:
+                await cur.execute(
+                    """
+                    SELECT d.id, d.original_filename
+                    FROM documents d
+                    JOIN candidate_profiles cp ON cp.document_id = d.id AND cp.tenant_id = d.tenant_id
+                    WHERE d.job_id = %s AND d.tenant_id = %s AND d.id != %s
+                      AND trim(regexp_replace(lower(cp.full_text_redacted), '[[:space:]]+', ' ', 'g')) = %s
+                      AND d.status IN ('READY', 'RECEIVED', 'NEEDS_REVIEW')
+                    LIMIT 1
+                    """,
+                    (doc["job_id"], doc["tenant_id"], doc_id, norm_text),
+                )
+                text_dup = await cur.fetchone()
+                if text_dup:
+                    await cur.execute(
+                        """
+                        UPDATE documents
+                        SET status = 'DUPLICATE', duplicate_of = %s, reasons = ARRAY['Text content duplicate of ' || %s]
+                        WHERE id = %s
+                        """,
+                        (text_dup["id"], text_dup["original_filename"], doc_id),
+                    )
+                    await conn.commit()
+                    logger.info(f"Document {filename} marked as DUPLICATE of {text_dup['original_filename']} by text fingerprint")
+                    return {"status": "DUPLICATE", "duplicate_of": text_dup["original_filename"]}
+
+            # Check if candidate already has another document in this job -> POSSIBLE_DUPLICATE_OF
+            await cur.execute(
+                """
+                SELECT d.id, c.candidate_code
+                FROM documents d
+                JOIN candidates c ON c.id = d.candidate_id AND c.tenant_id = d.tenant_id
+                WHERE d.job_id = %s AND d.tenant_id = %s AND d.id != %s
+                  AND d.candidate_id = %s
+                  AND d.status <> 'DUPLICATE'
+                LIMIT 1
+                """,
+                (doc["job_id"], doc["tenant_id"], doc_id, candidate_id),
+            )
+            prior_cand_doc = await cur.fetchone()
+            if prior_cand_doc and prior_cand_doc["candidate_code"]:
+                quality_flags.append(f"POSSIBLE_DUPLICATE_OF:{prior_cand_doc['candidate_code']}")
+
             await cur.execute(
                 """
                 INSERT INTO candidate_profiles (
