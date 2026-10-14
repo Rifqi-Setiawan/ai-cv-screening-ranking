@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import secrets
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 # Add root directory to python path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -16,11 +18,20 @@ if cv_extractor_src not in sys.path:
 
 # Set test environment before importing application
 os.environ.setdefault("APP_ENV", "test")
-os.environ.setdefault(
-    "DATABASE_URL",
-    "postgresql://cv_screening_user:4ql2MmOgXcZ9p9LPeNsP8JkMe7stZFnf6sAbmQxG1_c@127.0.0.1:5432/cv_screening",
-)
-os.environ.setdefault("JWT_SECRET", "8058e8757806ab6d42d4127510a6d5b5691e11cf01f04e4a4dac2314846b035c")
+
+test_db_url = os.environ.get("TEST_DATABASE_URL")
+if not test_db_url:
+    raise RuntimeError("Set TEST_DATABASE_URL ke database TES (bukan production).")
+
+parsed = urlparse(test_db_url)
+db_name = parsed.path.lstrip("/")
+if not db_name.endswith("_test"):
+    raise RuntimeError(f"Ditolak: database testing '{db_name}' harus berakhiran '_test' demi keamanan production.")
+
+os.environ["DATABASE_URL"] = test_db_url
+os.environ.setdefault("JWT_SECRET", secrets.token_hex(32))
+os.environ.setdefault("METRICS_TOKEN", secrets.token_hex(32))
+os.environ.setdefault("PII_ENCRYPTION_KEY", secrets.token_hex(32))
 
 from collections.abc import AsyncGenerator
 

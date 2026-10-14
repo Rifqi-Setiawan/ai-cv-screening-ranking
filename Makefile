@@ -1,4 +1,4 @@
-.PHONY: test lint typecheck run-api run-worker eval seed clean migrate
+.PHONY: test lint typecheck run-api run-worker eval seed clean migrate test-db
 
 VENV = .venv
 PYTHON = $(VENV)/bin/python
@@ -8,11 +8,29 @@ RUFF = $(VENV)/bin/ruff
 MYPY = $(VENV)/bin/mypy
 ALEMBIC = $(VENV)/bin/alembic
 
+TEST_DB_NAME ?= cv_screening_test
+TEST_DATABASE_URL ?= $(shell grep '^DATABASE_URL=' .env 2>/dev/null | cut -d= -f2- | sed 's|/cv_screening$$|/cv_screening_test|')
+
 migrate:
 	$(ALEMBIC) upgrade head
 
+test-db:
+	@echo "=== Provisioning $(TEST_DB_NAME) ==="
+	@PYTHONPATH=. $(PYTHON) -c "import os, psycopg; from urllib.parse import urlparse; \
+	raw = os.environ.get('TEST_DATABASE_URL') or '$(TEST_DATABASE_URL)'; \
+	p = urlparse(raw); \
+	m_url = p._replace(path='/postgres').geturl(); \
+	conn = psycopg.connect(m_url, autocommit=True); \
+	cur = conn.cursor(); \
+	cur.execute('DROP DATABASE IF EXISTS $(TEST_DB_NAME);'); \
+	cur.execute('CREATE DATABASE $(TEST_DB_NAME) OWNER cv_screening_user;'); \
+	conn.close(); print('Created $(TEST_DB_NAME)')"
+	@DATABASE_URL=$(TEST_DATABASE_URL) APP_ENV=test $(ALEMBIC) upgrade head
+	@DATABASE_URL=$(TEST_DATABASE_URL) APP_ENV=test PYTHONPATH=. $(PYTHON) scripts/seed_users.py
+	@echo "=== $(TEST_DB_NAME) Ready ==="
+
 test:
-	PYTHONPATH=. $(PYTEST) -v
+	TEST_DATABASE_URL=$(TEST_DATABASE_URL) PYTHONPATH=. $(PYTEST) -v
 
 lint:
 	$(RUFF) check src tests
