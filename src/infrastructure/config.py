@@ -54,7 +54,10 @@ class Settings(BaseSettings):
     ]
 
     # Metrics
-    METRICS_TOKEN: str = "default-metrics-token-secret"
+    METRICS_TOKEN: str = ""
+
+    # PII Encryption Key (32 bytes hex for pgcrypto)
+    PII_ENCRYPTION_KEY: str = ""
 
     @model_validator(mode="after")
     def validate_security(self) -> Settings:
@@ -64,6 +67,12 @@ class Settings(BaseSettings):
             lower_jwt = self.JWT_SECRET.lower()
             if any(term in lower_jwt for term in ("insecure", "change", "secret-key")):
                 raise ValueError("JWT_SECRET contains insecure default terms")
+
+            if not self.METRICS_TOKEN or len(self.METRICS_TOKEN) < 32:
+                raise ValueError("METRICS_TOKEN must be at least 32 characters in production/development")
+            lower_metrics = self.METRICS_TOKEN.lower()
+            if any(term in lower_metrics for term in ("insecure", "change", "default", "secret-key")):
+                raise ValueError("METRICS_TOKEN contains insecure default terms")
         return self
 
 
