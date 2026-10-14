@@ -17,16 +17,59 @@ def test_rule_based_importance_keywords():
     assert reqs_must[0]["importance"] == "MUST_HAVE"
 
 
+def test_section_parser_importance_and_order_invariance():
+    jd1 = """Kualifikasi Wajib:
+- Menguasai Microsoft Excel
+- Pengalaman di bidang keuangan
+
+Nilai tambah:
+- Pengalaman di perbankan
+- Memiliki sertifikasi CFA"""
+
+    jd2 = """Nilai tambah:
+- Memiliki sertifikasi CFA
+- Pengalaman di perbankan
+
+Kualifikasi Wajib:
+- Pengalaman di bidang keuangan
+- Menguasai Microsoft Excel"""
+
+    res1 = compile_jd_rule_based(jd1)
+    res2 = compile_jd_rule_based(jd2)
+
+    # Check importance by description
+    imp1 = {r["description"]: r["importance"] for r in res1}
+    imp2 = {r["description"]: r["importance"] for r in res2}
+
+    assert imp1["Menguasai Microsoft Excel"] == "MUST_HAVE"
+    assert imp1["Pengalaman di bidang keuangan"] == "MUST_HAVE"
+    assert imp1["Pengalaman di perbankan"] == "NICE_TO_HAVE"
+    assert imp1["Memiliki sertifikasi CFA"] == "NICE_TO_HAVE"
+
+    assert imp2["Menguasai Microsoft Excel"] == "MUST_HAVE"
+    assert imp2["Pengalaman di bidang keuangan"] == "MUST_HAVE"
+    assert imp2["Pengalaman di perbankan"] == "NICE_TO_HAVE"
+    assert imp2["Memiliki sertifikasi CFA"] == "NICE_TO_HAVE"
+
+
+def test_concept_regex_boundaries():
+    # 'Familiar dengan Azure DevOps' should NOT match kubernetes
+    jd = "- Familiar dengan Azure DevOps dan pipeline CI/CD"
+    res = compile_jd_rule_based(jd)
+    assert len(res) >= 1
+    concepts = res[0]["concepts"]
+    assert "skill:kubernetes" not in concepts
+
+
 @pytest.mark.asyncio
 async def test_llm_invalid_importance_coerced_or_fallback():
-    # LLM returns invalid importance 'SUPER_IMPORTANT'
     mock_llm_res = {
         "requirements": [
             {
                 "requirement_id": "R1",
                 "description": "Menguasai Kubernetes merupakan nilai tambah",
                 "importance": "SUPER_IMPORTANT",
-                "weight": -5,
+                "weight": 500,
             }
         ]
     }
@@ -36,8 +79,6 @@ async def test_llm_invalid_importance_coerced_or_fallback():
         res = await compile_job_requirements("Sample JD text")
         reqs = res["requirements"]
         assert len(reqs) >= 1
-        # The invalid importance must NOT leak through as SUPER_IMPORTANT
-        assert reqs[0]["importance"] in ("MUST_HAVE", "STRONG_PREFERENCE", "NICE_TO_HAVE")
         assert reqs[0]["importance"] == "NICE_TO_HAVE"
-        # Negative weight must be coerced to positive default
-        assert reqs[0]["weight"] > 0
+        # Weight clamped to max 30.0
+        assert reqs[0]["weight"] <= 30.0

@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from src.domain.pii import sanitize_contact_pii
 from src.domain.policy_linter import lint_text
 from src.infrastructure.gateway import gateway
 from src.infrastructure.logging import logger
@@ -17,6 +18,15 @@ VALID_CATEGORIES = {"EXPERIENCE", "HARD_SKILLS", "EDUCATION_CERT", "ACHIEVEMENT"
 MUST_HAVE_KEYWORDS = {"wajib", "harus", "must", "required", "minimum", "minimal", "essential"}
 NICE_TO_HAVE_KEYWORDS = {"nilai tambah", "plus", "preferred", "nice to have", "diutamakan", "keuntungan"}
 
+HEADER_MUST_HAVE = re.compile(
+    r"(?:kualifikasi\s+wajib|persyaratan\s+wajib|\brequirements\b|\bwajib\b|\bmust\b|\bminimum\b)",
+    re.IGNORECASE,
+)
+HEADER_NICE_TO_HAVE = re.compile(
+    r"(?:nilai\s+tambah|diutamakan|\bpreferred\b|nice\s+to\s+have|\bplus\b|\bkeuntungan\b)",
+    re.IGNORECASE,
+)
+
 
 class CompiledRequirement(BaseModel):
     requirement_id: str
@@ -24,7 +34,7 @@ class CompiledRequirement(BaseModel):
     category: str = "HARD_SKILLS"
     kind: str = "SKILL"
     importance: Literal["MUST_HAVE", "STRONG_PREFERENCE", "NICE_TO_HAVE"]
-    weight: float = Field(default=10.0, gt=0)
+    weight: float = Field(default=10.0, ge=1.0, le=30.0)
     concepts: list[str] = Field(default_factory=list)
     params: dict[str, Any] = Field(default_factory=dict)
     source_text: str = ""
@@ -32,9 +42,9 @@ class CompiledRequirement(BaseModel):
 
 def determine_importance(line: str, default: str = "STRONG_PREFERENCE") -> str:
     lower = line.lower()
-    if any(k in lower for k in MUST_HAVE_KEYWORDS):
+    if re.search(r"\b(?:wajib|harus|must|required|minimum|minimal|essential)\b", lower):
         return "MUST_HAVE"
-    if any(k in lower for k in NICE_TO_HAVE_KEYWORDS):
+    if re.search(r"\b(?:nilai\s+tambah|nice\s+to\s+have|plus|diutamakan|preferred|keuntungan)\b", lower):
         return "NICE_TO_HAVE"
     return default
 
@@ -48,7 +58,7 @@ DEFAULT_CATEGORY_WEIGHTS = {
 
 CONCEPT_RULES = [
     (
-        r"backend\s+engineer|backend\s+developer",
+        r"\b(?:backend\s+engineer|backend\s+developer)\b",
         ["role_family:backend"],
         "EXPERIENCE",
         "EXPERIENCE_DURATION",
@@ -56,28 +66,63 @@ CONCEPT_RULES = [
         25,
     ),
     (
-        r"rest\s+api|microservices",
+        r"\b(?:rest\s+api|microservices)\b",
         ["skill:rest_api", "skill:microservices"],
         "EXPERIENCE",
         "RESPONSIBILITY",
         "STRONG_PREFERENCE",
         15,
     ),
-    (r"python|fastapi|django|flask", ["skill:python"], "HARD_SKILLS", "SKILL", "MUST_HAVE", 10),
-    (r"postgresql|postgres", ["skill:postgresql"], "HARD_SKILLS", "SKILL", "MUST_HAVE", 8),
-    (r"docker", ["skill:docker"], "HARD_SKILLS", "SKILL", "STRONG_PREFERENCE", 6),
     (
-        r"kubernetes|k8s|cloud\s*\(aws|gcp|azure",
+        r"\b(?:python|fastapi|django|flask)\b",
+        ["skill:python"],
+        "HARD_SKILLS",
+        "SKILL",
+        "MUST_HAVE",
+        10,
+    ),
+    (
+        r"\b(?:postgresql|postgres)\b",
+        ["skill:postgresql"],
+        "HARD_SKILLS",
+        "SKILL",
+        "MUST_HAVE",
+        8,
+    ),
+    (
+        r"\bdocker\b",
+        ["skill:docker"],
+        "HARD_SKILLS",
+        "SKILL",
+        "STRONG_PREFERENCE",
+        6,
+    ),
+    (
+        r"(?:cloud\s*\((?:aws|gcp|azure)\)|\b(?:kubernetes|k8s)\b)",
         ["skill:kubernetes", "skill:cloud"],
         "HARD_SKILLS",
         "SKILL",
         "NICE_TO_HAVE",
         6,
     ),
-    (r"memimpin|membimbing|mentoring", ["skill:mentoring"], "EXPERIENCE", "RESPONSIBILITY", "NICE_TO_HAVE", 5),
-    (r"sertifikasi\s+cloud|certified", ["cert:cloud"], "EDUCATION_CERT", "CERTIFICATION", "NICE_TO_HAVE", 5),
     (
-        r"pencapaian\s+terukur|skala|efisiensi",
+        r"\b(?:memimpin|membimbing|mentoring)\b",
+        ["skill:mentoring"],
+        "EXPERIENCE",
+        "RESPONSIBILITY",
+        "NICE_TO_HAVE",
+        5,
+    ),
+    (
+        r"\b(?:sertifikasi\s+cloud|certified)\b",
+        ["cert:cloud"],
+        "EDUCATION_CERT",
+        "CERTIFICATION",
+        "NICE_TO_HAVE",
+        5,
+    ),
+    (
+        r"\b(?:pencapaian\s+terukur|skala|efisiensi)\b",
         ["achievement:quantified_backend"],
         "ACHIEVEMENT",
         "ACHIEVEMENT",
@@ -85,7 +130,7 @@ CONCEPT_RULES = [
         10,
     ),
     (
-        r"s1\s+teknik\s+informatika|ilmu\s+komputer|sistem\s+informasi",
+        r"\b(?:s1\s+teknik\s+informatika|ilmu\s+komputer|sistem\s+informasi)\b",
         ["field:computing"],
         "EDUCATION_CERT",
         "EDUCATION",
@@ -95,6 +140,75 @@ CONCEPT_RULES = [
 ]
 
 
+def extract_demographic_suggestions(jd_text: str) -> tuple[str, list[dict[str, Any]]]:
+    """Strips demographic criteria from JD text and converts them to eligibility suggestions.
+
+    Demographic criteria (age, gender) are NEVER sent to LLM or scoring rubric.
+    """
+    suggestions: list[dict[str, Any]] = []
+    cleaned_lines: list[str] = []
+
+    for raw_line in jd_text.splitlines():
+        line_clean = raw_line.strip()
+        if not line_clean:
+            cleaned_lines.append(raw_line)
+            continue
+
+        l_res = lint_text(line_clean)
+        admin_flags = l_res.get("admin_flags", [])
+
+        if "ADMIN_ONLY_AGE" in admin_flags:
+            val_age: dict[str, Any] | None = None
+            m_max = re.search(
+                r"(?:maksimal|maks|max|maximum)\.?\s*(\d+)\s*(?:tahun|years|thn)?",
+                line_clean,
+                re.I,
+            )
+            m_min = re.search(
+                r"(?:minimal|min|minimum)\.?\s*(\d+)\s*(?:tahun|years|thn)?",
+                line_clean,
+                re.I,
+            )
+            if m_max:
+                rule_t = "AGE_MAX"
+                val_age = {"years": int(m_max.group(1))}
+            elif m_min:
+                rule_t = "AGE_MIN"
+                val_age = {"years": int(m_min.group(1))}
+            else:
+                rule_t = "AGE_MAX"
+                m_num = re.search(r"\b(\d{2})\s*(?:tahun|thn|years)\b", line_clean, re.I)
+                if m_num:
+                    val_age = {"years": int(m_num.group(1))}
+
+            suggestions.append(
+                {
+                    "rule_type": rule_t,
+                    "value": val_age,
+                    "source_text": line_clean.lstrip("-*• 0123456789.)").strip(),
+                }
+            )
+        elif "ADMIN_ONLY_GENDER" in admin_flags:
+            allowed: list[str] = []
+            if re.search(r"\b(?:wanita|perempuan|female)\b", line_clean, re.I):
+                allowed.append("F")
+            elif re.search(r"\b(?:pria|laki[\s-]laki|male)\b", line_clean, re.I):
+                allowed.append("M")
+
+            val_gender: dict[str, Any] | None = {"allowed": allowed} if allowed else None
+            suggestions.append(
+                {
+                    "rule_type": "GENDER",
+                    "value": val_gender,
+                    "source_text": line_clean.lstrip("-*• 0123456789.)").strip(),
+                }
+            )
+        else:
+            cleaned_lines.append(raw_line)
+
+    return "\n".join(cleaned_lines), suggestions
+
+
 def compile_jd_rule_based(jd_text: str) -> list[dict[str, Any]]:
     """Deterministic fallback parser mapping bullet points and requirements to concept taxonomy."""
     requirements = []
@@ -102,25 +216,40 @@ def compile_jd_rule_based(jd_text: str) -> list[dict[str, Any]]:
 
     matched_concepts: set[str] = set()
     req_idx = 1
+    current_section = "STRONG_PREFERENCE"
 
     for orig_line in raw_lines:
+        clean = orig_line.strip()
+        # Detect section header
+        if (
+            clean.endswith(":")
+            or clean.startswith("#")
+            or not clean.startswith(("-", "*", "•", "1", "2", "3", "4", "5", "6", "7", "8", "9"))
+        ):
+            if HEADER_MUST_HAVE.search(clean):
+                current_section = "MUST_HAVE"
+                continue
+            elif HEADER_NICE_TO_HAVE.search(clean):
+                current_section = "NICE_TO_HAVE"
+                continue
+            elif clean.endswith(":"):
+                current_section = "STRONG_PREFERENCE"
+                continue
+
         line = orig_line.lstrip("-*• 0123456789.)").strip()
-        if len(line) < 8 or line.startswith("#"):
+        if len(line) < 5 or line.startswith("#"):
             continue
 
         matched = False
-        for pat, concepts, category, kind, default_importance, default_weight in CONCEPT_RULES:
+        for pat, concepts, category, kind, _default_importance, default_weight in CONCEPT_RULES:
             if re.search(pat, line, re.IGNORECASE):
-                # Avoid duplicate rules for same concept
                 c_key = concepts[0]
                 if c_key in matched_concepts:
                     matched = True
                     break
                 matched_concepts.add(c_key)
 
-                # Importance from line wording
-                importance = determine_importance(line, default_importance)
-
+                importance = determine_importance(line, current_section)
                 lint_res = lint_text(line)
 
                 requirements.append(
@@ -134,7 +263,9 @@ def compile_jd_rule_based(jd_text: str) -> list[dict[str, Any]]:
                         "concepts": concepts,
                         "params": {},
                         "source_text": line,
-                        "lint_flags": lint_res["prohibited_flags"] + lint_res["risky_flags"],
+                        "lint_flags": lint_res["prohibited_flags"]
+                        + lint_res["risky_flags"]
+                        + lint_res.get("admin_flags", []),
                     }
                 )
                 req_idx += 1
@@ -149,7 +280,7 @@ def compile_jd_rule_based(jd_text: str) -> list[dict[str, Any]]:
             )
             cat = "EXPERIENCE" if is_exp else ("EDUCATION_CERT" if is_edu else "HARD_SKILLS")
             knd = "EXPERIENCE_DURATION" if is_exp else ("EDUCATION" if is_edu else "SKILL")
-            imp = determine_importance(line, "STRONG_PREFERENCE")
+            imp = determine_importance(line, current_section)
             lint_res = lint_text(line)
             requirements.append(
                 {
@@ -158,11 +289,13 @@ def compile_jd_rule_based(jd_text: str) -> list[dict[str, Any]]:
                     "category": cat,
                     "kind": knd,
                     "importance": imp,
-                    "weight": 10,
+                    "weight": 10.0,
                     "concepts": [],
                     "params": {},
                     "source_text": line,
-                    "lint_flags": lint_res["prohibited_flags"] + lint_res["risky_flags"],
+                    "lint_flags": lint_res["prohibited_flags"]
+                    + lint_res["risky_flags"]
+                    + lint_res.get("admin_flags", []),
                 }
             )
             req_idx += 1
@@ -170,20 +303,18 @@ def compile_jd_rule_based(jd_text: str) -> list[dict[str, Any]]:
     return requirements
 
 
-EMAIL_REGEX = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
-PHONE_REGEX = re.compile(r"(?:\+62|62|08)[0-9\s-]{8,15}")
-
-
 async def compile_job_requirements(jd_text: str, tenant_id: uuid.UUID | None = None) -> dict[str, Any]:
-    """Compiles Job Description into structured requirement set using 9Router with deterministic fallback."""
-    # Check overall JD text for prohibited criteria
+    """Compiles Job Description into structured requirement set with demographic filtering."""
+    # 1. Overall lint
     overall_lint = lint_text(jd_text)
 
-    # Sanitize any recruiter contact details from JD text before sending to LLM
-    clean_jd_text = EMAIL_REGEX.sub("[KONTAK_HR]", jd_text)
-    clean_jd_text = PHONE_REGEX.sub("[KONTAK_HR]", clean_jd_text)
+    # 2. Extract demographic criteria into administrative suggestions and strip from prompt
+    clean_no_demographics, eligibility_suggestions = extract_demographic_suggestions(jd_text)
 
-    # Attempt LLM compilation via 9Router
+    # 3. Sanitize recruiter contact details
+    clean_jd_text = sanitize_contact_pii(clean_no_demographics)
+
+    # 4. Attempt LLM compilation via 9Router
     prompt = (
         "Kamu adalah compiler Job Description menjadi kriteria screening terstruktur.\n"
         "Analisis teks lowongan ini dan hasilkan JSON array 'requirements' dengan field:\n"
@@ -209,7 +340,6 @@ async def compile_job_requirements(jd_text: str, tenant_id: uuid.UUID | None = N
         logger.warning(f"LLM compilation failed, falling back to rule-based: {e}")
         llm_res = None
 
-    requirements = []
     req_list = []
     if isinstance(llm_res, list):
         req_list = llm_res
@@ -225,24 +355,30 @@ async def compile_job_requirements(jd_text: str, tenant_id: uuid.UUID | None = N
                     raw_imp = determine_importance(item.get("description", "") or item.get("source_text", ""))
 
                 raw_wt = float(item.get("weight") or 10.0)
-                if raw_wt <= 0:
-                    raw_wt = 10.0
+                raw_wt = max(1.0, min(30.0, raw_wt))
 
                 desc = item.get("description", "")
                 r_lint = lint_text(desc)
+                if any(f.startswith("ADMIN_ONLY_") for f in r_lint["admin_flags"]):
+                    continue
+
+                item_cat = item.get("category") if item.get("category") in VALID_CATEGORIES else "HARD_SKILLS"
                 concepts = list(item.get("concepts", []))
-                for pat, c_list, _cat, _knd, _imp, _wt in CONCEPT_RULES:
-                    if re.search(pat, desc, re.IGNORECASE) or re.search(
-                        pat, item.get("source_text", ""), re.IGNORECASE
+
+                # Concept augmentation only if rule category matches requirement category
+                for pat, c_list, r_cat, _knd, _imp, _wt in CONCEPT_RULES:
+                    if r_cat == item_cat and (
+                        re.search(pat, desc, re.IGNORECASE)
+                        or re.search(pat, item.get("source_text", ""), re.IGNORECASE)
                     ):
                         for c in c_list:
                             if c not in concepts:
                                 concepts.append(c)
 
                 model = CompiledRequirement(
-                    requirement_id=item.get("requirement_id") or f"R{idx}",
+                    requirement_id=f"R{idx}",
                     description=desc,
-                    category=item.get("category") if item.get("category") in VALID_CATEGORIES else "HARD_SKILLS",
+                    category=item_cat,
                     kind=item.get("kind") or "SKILL",
                     importance=raw_imp,  # type: ignore[arg-type]
                     weight=raw_wt,
@@ -251,15 +387,32 @@ async def compile_job_requirements(jd_text: str, tenant_id: uuid.UUID | None = N
                     source_text=item.get("source_text") or desc,
                 )
                 req_dict = model.model_dump()
-                req_dict["lint_flags"] = r_lint["prohibited_flags"] + r_lint["risky_flags"]
+                req_dict["lint_flags"] = (
+                    r_lint["prohibited_flags"] + r_lint["risky_flags"] + r_lint.get("admin_flags", [])
+                )
                 validated_reqs.append(req_dict)
         except Exception as e:
             logger.warning(f"Validation failed for LLM requirements output: {e}, falling back to rule-based.")
             validated_reqs = []
 
-    requirements = validated_reqs or compile_jd_rule_based(jd_text)
+    requirements = validated_reqs or compile_jd_rule_based(clean_no_demographics)
 
-    # Attach any overall JD prohibited flags to requirements or set level
+    # Filter out any lingering demographic requirements
+    clean_reqs = []
+    for r in requirements:
+        r_lint = lint_text(r["description"] + " " + r.get("source_text", ""))
+        if any(f.startswith("ADMIN_ONLY_") for f in r_lint["admin_flags"]):
+            continue
+        clean_reqs.append(r)
+    requirements = clean_reqs
+
+    # Compile warnings
+    compile_warnings = []
+    must_have_count = sum(1 for r in requirements if r["importance"] == "MUST_HAVE")
+    if must_have_count > 5:
+        compile_warnings.append("TOO_MANY_MUST_HAVE")
+
+    # Overall prohibited flags
     all_prohibited = list(overall_lint["prohibited_flags"])
     for r in requirements:
         all_prohibited.extend([f for f in r.get("lint_flags", []) if f.startswith("PROHIBITED_")])
@@ -269,7 +422,10 @@ async def compile_job_requirements(jd_text: str, tenant_id: uuid.UUID | None = N
         "status": "DRAFT",
         "category_weights": DEFAULT_CATEGORY_WEIGHTS,
         "requirements": requirements,
+        "eligibility_suggestions": eligibility_suggestions,
         "is_valid": len(all_prohibited) == 0,
         "prohibited_flags": all_prohibited,
         "risky_flags": overall_lint["risky_flags"],
+        "admin_flags": overall_lint.get("admin_flags", []),
+        "compile_warnings": compile_warnings,
     }
