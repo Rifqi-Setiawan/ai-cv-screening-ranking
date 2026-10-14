@@ -54,8 +54,24 @@ def score(states: dict[str, str], requirement_set: dict[str, Any]) -> ScoreResul
         cat_num[r["category"]] = cat_num.get(r["category"], 0.0) + w * v
         cat_den[r["category"]] = cat_den.get(r["category"], 0.0) + w
 
-    raw = round(100.0 * num / den, 1) if den else 0.0
-    cats = {c: round(100.0 * cat_num[c] / cat_den[c], 1) for c in cat_den}
+    cat_scores = {c: (100.0 * cat_num[c] / cat_den[c]) if cat_den[c] else 0.0 for c in cat_den}
+
+    # Two-layer normalization using category_weights if provided
+    raw_cat_weights = requirement_set.get("category_weights") or {}
+    active_weights = {
+        cat: float(w)
+        for cat, w in raw_cat_weights.items()
+        if cat in cat_den and cat_den[cat] > 0
+    }
+
+    if active_weights:
+        total_active_weight = sum(active_weights.values())
+        raw_val = sum(cat_scores[c] * (w / total_active_weight) for c, w in active_weights.items())
+        raw = round(raw_val, 1)
+    else:
+        raw = round(100.0 * num / den, 1) if den else 0.0
+
+    cats = {c: round(score_val, 1) for c, score_val in cat_scores.items()}
 
     if must_unknown:
         band = "R"
