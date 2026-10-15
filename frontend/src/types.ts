@@ -21,10 +21,11 @@ export interface CandidateScore {
   final_score: number
   raw_score: number
   band: 'A' | 'B' | 'C' | 'R'
-  recommendation: 'SHORTLIST' | 'REVIEW' | 'LOW_PRIORITY' | 'MANUAL_CHECK'
+  recommendation: 'SHORTLIST' | 'REVIEW' | 'LOW_PRIORITY' | 'MANUAL_CHECK' | 'REJECTED_NOT_A_CV'
   category_breakdown: Record<string, number>
   metrics: Record<string, any>
   flags: string[]
+  document_reasons?: string[]
   decision?: 'SHORTLIST' | 'HOLD' | 'TIDAK_LANJUT' | 'NONE'
   decision_notes?: string
   quality_status?: string

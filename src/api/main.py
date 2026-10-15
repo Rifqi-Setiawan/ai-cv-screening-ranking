@@ -61,6 +61,10 @@ frontend_dist = Path("/srv/hermes-control/services/cv-screening/frontend/dist")
 if frontend_dist.exists() and (frontend_dist / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="assets")
 
+audit_files_dir = Path("/srv/hermes-control/services/cv-screening/data/audit_public")
+if audit_files_dir.exists():
+    app.mount("/audit-files", StaticFiles(directory=str(audit_files_dir)), name="audit-files")
+
     @app.get("/favicon.svg", include_in_schema=False)
     async def favicon():
         return FileResponse(frontend_dist / "favicon.svg")

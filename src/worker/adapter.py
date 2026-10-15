@@ -15,6 +15,10 @@ if str(CV_EXTRACTOR_SRC) not in sys.path:
 from cv_extractor.application.config import LlmConfig, OcrConfig, PipelineConfig
 from cv_extractor.bootstrap import build_service
 
+from src.worker.anchor import resolve_candidate_name_consensus
+from src.worker.boundary import isolate_document_boundaries
+from src.worker.docling_parser import parse_with_docling
+
 MONTHS_MAP = {
     "jan": "01",
     "januari": "01",
@@ -505,8 +509,29 @@ def sanitize_extracted_name(name: str | None, full_text: str, filename: str) -> 
 
 
 def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
+    portfolio_attachments: list[dict[str, Any]] = []
     if filename.lower().endswith(".pdf"):
         content = strip_hidden_pdf_spans(content)
+        # Smart Document Boundary Isolator (Decision 2: Opsi A - isolate attachments)
+        try:
+            import pymupdf as fitz
+
+            doc = fitz.open(stream=content, filetype="pdf")
+            pages_data = [{"text": doc[i].get_text(), "image_count": len(doc[i].get_images())} for i in range(len(doc))]
+            boundary = isolate_document_boundaries(pages_data)
+            portfolio_attachments = boundary.attachments
+
+            # If there are attachment pages, trim content to only CV core pages for profile extraction
+            if len(boundary.cv_core_pages) < len(pages_data) and boundary.cv_core_pages:
+                trimmed_doc = fitz.open()
+                for pno in boundary.cv_core_pages:
+                    trimmed_doc.insert_pdf(doc, from_page=pno - 1, to_page=pno - 1)
+                content = trimmed_doc.tobytes()
+                trimmed_doc.close()
+            doc.close()
+        except Exception:
+            pass
+
     service = get_extractor_service()
     raw = service.extract(content, filename).to_dict()
 
@@ -522,6 +547,25 @@ def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
     prj_text = "\n".join(sec_map.get("projects", []))
     org_text = "\n".join(sec_map.get("organizations", []) + sec_map.get("training", []))
     ach_text = "\n".join(sec_map.get("awards", []) + sec_map.get("achievements", []))
+
+    # Docling Hybrid Fallback for messy/disordered layouts (Decision 3: Opsi A)
+    if (raw.get("meta", {}).get("confidence", 1.0) < 0.60 or not exp_text.strip()) and filename.lower().endswith(".pdf"):
+        docling_res = parse_with_docling(content, filename)
+        if docling_res and docling_res.get("sections"):
+            for s in docling_res["sections"]:
+                h_lower = s.get("heading", "").lower()
+                t_content = s.get("text", "").strip()
+                if not t_content:
+                    continue
+                if any(w in h_lower for w in ["experience", "pengalaman", "pekerjaan", "kerja"]):
+                    sec_map.setdefault("experience", []).append(t_content)
+                elif any(w in h_lower for w in ["education", "pendidikan", "akademik", "studi"]):
+                    sec_map.setdefault("education", []).append(t_content)
+                elif any(w in h_lower for w in ["skill", "keahlian", "kemampuan", "tools"]):
+                    sec_map.setdefault("skills", []).append(t_content)
+            exp_text = "\n".join(sec_map.get("experience", []))
+            ed_text = "\n".join(sec_map.get("education", []))
+            sk_text = "\n".join(sec_map.get("skills", []))
 
     full_text = "\n".join(s.get("text", "") for s in raw.get("sections", []))
 
@@ -626,7 +670,9 @@ def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
         other_personal["marital_status"] = m_mar.group(1).strip()
 
     identity = {
-        "full_name": sanitize_extracted_name(raw.get("name"), full_text, filename),
+        "full_name": resolve_candidate_name_consensus(
+            raw.get("name"), full_text, filename, email=emails[0] if emails else None
+        ),
         "email": emails[0] if emails else None,
         "phone": phones[0] if phones else None,
         "location_raw": contact.get("location"),
@@ -687,6 +733,7 @@ def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
         "projects": projects,
         "organizations": organizations,
         "achievements": achievements,
+        "portfolio_attachments": portfolio_attachments,
         "quality": {
             "confidence": raw.get("meta", {}).get("confidence", 1.0),
             "warnings": raw.get("meta", {}).get("warnings", []),

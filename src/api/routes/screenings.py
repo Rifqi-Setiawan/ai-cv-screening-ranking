@@ -162,6 +162,7 @@ async def get_latest_screening(
             )
             SELECT cs.rank, cs.candidate_id as cv_id, cs.candidate_id, d.original_filename as file_name, cs.final_score, cs.raw_score,
                    cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status,
+                   d.reasons as document_reasons,
                    COALESCE(rs.states, '{}'::jsonb) as requirement_states,
                    COALESCE(ce.overall_status, 'NOT_APPLICABLE') as eligibility_status,
                    COALESCE(
@@ -244,6 +245,7 @@ async def get_rankings(
             )
             SELECT cs.rank, cs.candidate_id as cv_id, cs.candidate_id, d.original_filename as file_name, cs.final_score, cs.raw_score,
                    cs.band, cs.recommendation, cs.category_scores as category_breakdown, cs.flags, d.status as quality_status,
+                   d.reasons as document_reasons,
                    COALESCE(rs.states, '{}'::jsonb) as requirement_states,
                    COALESCE(ce.overall_status, 'NOT_APPLICABLE') as eligibility_status,
                    COALESCE(

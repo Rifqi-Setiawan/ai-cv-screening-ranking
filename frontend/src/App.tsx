@@ -110,7 +110,7 @@ Kualifikasi:
         if (activeBand === 'A' && c.band !== 'A') return false
         if (activeBand === 'B' && c.band !== 'B') return false
         if (activeBand === 'C' && c.band !== 'C') return false
-        if (activeBand === 'MANUAL' && c.recommendation !== 'MANUAL_CHECK') return false
+        if (activeBand === 'MANUAL' && c.recommendation !== 'MANUAL_CHECK' && c.recommendation !== 'REJECTED_NOT_A_CV') return false
       }
       if (searchQuery) {
         const q = searchQuery.toLowerCase()
@@ -1806,15 +1806,20 @@ Kualifikasi:
                                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                 : cand.recommendation === 'REVIEW'
                                 ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                                : cand.recommendation === 'REJECTED_NOT_A_CV' || cand.flags?.includes('NOT_A_CV')
+                                ? 'bg-rose-50 text-rose-700 border border-rose-300'
                                 : cand.recommendation === 'MANUAL_CHECK'
                                 ? 'bg-purple-50 text-purple-700 border border-purple-200'
                                 : 'bg-slate-100 text-slate-600'
                             }`}
+                            title={cand.document_reasons?.join(', ')}
                           >
                             {cand.recommendation === 'SHORTLIST'
                               ? 'Disarankan Shortlist'
                               : cand.recommendation === 'REVIEW'
                               ? 'Perlu Ditinjau'
+                              : cand.recommendation === 'REJECTED_NOT_A_CV' || cand.flags?.includes('NOT_A_CV')
+                              ? '⛔ Bukan CV (Ditolak)'
                               : cand.recommendation === 'MANUAL_CHECK'
                               ? 'Perlu Cek Manual'
                               : 'Prioritas Rendah'}

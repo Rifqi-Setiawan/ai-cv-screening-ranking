@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import torch
 from sentence_transformers import SentenceTransformer
 
 from src.infrastructure.config import settings
@@ -14,7 +15,9 @@ def get_embedding_model() -> SentenceTransformer:
     global _model
     if _model is None:
         logger.info(f"Loading embedding model {settings.EMBEDDING_MODEL} on CPU...")
-        _model = SentenceTransformer(settings.EMBEDDING_MODEL, device="cpu")
+        _model = SentenceTransformer(
+            settings.EMBEDDING_MODEL, device="cpu", model_kwargs={"torch_dtype": torch.float32}
+        )
         logger.info(f"Embedding model loaded successfully (max_seq_length: {_model.max_seq_length}).")
     return _model
 

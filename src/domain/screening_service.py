@@ -265,6 +265,8 @@ async def execute_screening_run(run_id: uuid.UUID) -> dict[str, Any]:
             fin_sc = s_res.final_score if s_res else 0.0
             bnd = s_res.band if s_res else "R"
             rec = s_res.recommendation if s_res else "MANUAL_CHECK"
+            if "NOT_A_CV" in c_data.get("flags", []) or any("NOT_A_CV" in str(r) for r in c_data.get("reasons", [])):
+                rec = "REJECTED_NOT_A_CV"
             cat_b = s_res.category_breakdown if s_res else {}
             cov = s_res.coverage if s_res else 1.0
             cand_flags = list(set(c_data["flags"] + (s_res.flags if s_res else [])))

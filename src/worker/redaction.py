@@ -113,6 +113,7 @@ def extract_identity_and_redact(
         "skills": raw_profile.get("skills", []),
         "projects": [],
         "organizations": [],
+        "portfolio_attachments": raw_profile.get("portfolio_attachments", []),
         "quality": raw_profile.get("quality", {}),
     }
 

@@ -153,35 +153,22 @@ def sanitize_file(content: bytes, filename: str) -> SanitizeResult:
                 flags.append("KEYWORD_STUFFING")
                 break
 
-        text_chars = len(re.sub(r"\s+", "", full_text))
+        # Check Insufficient / Empty content or Non-CV document using CVClassifierGate
+        from src.worker.classifier import classify_document_is_cv
 
-        # Check Insufficient / Empty content (e.g. E1): text empty AND no images
-        if text_chars < 80 and total_images == 0:
+        class_res = classify_document_is_cv(full_text, page_count=page_count, total_images=total_images)
+        if not class_res.is_cv:
+            if class_res.doc_type == "INSUFFICIENT_CONTENT":
+                reasons = ["INSUFFICIENT_CONTENT", "EMPTY_DOCUMENT"]
+            else:
+                reasons = ["NOT_A_CV", f"NOT_A_CV_{class_res.doc_type}"] + class_res.reasons
             return SanitizeResult(
                 is_valid=True,
                 status="NEEDS_REVIEW",
                 sha256=sha256,
                 file_type="pdf",
-                reasons=["INSUFFICIENT_CONTENT", "EMPTY_DOCUMENT"],
-                flags=flags,
-                extracted_text=full_text,
-                page_count=page_count,
-            )
-
-        # Check Cover letter not a CV (e.g. E7)
-        is_cover_letter = any(p.search(full_text) for p in COVER_LETTER_PATTERNS)
-        has_cv_sections = any(
-            sec in full_text.lower()
-            for sec in ["pengalaman", "experience", "pendidikan", "education", "keahlian", "skills", "riwayat"]
-        )
-        if is_cover_letter and not has_cv_sections:
-            return SanitizeResult(
-                is_valid=True,
-                status="NEEDS_REVIEW",
-                sha256=sha256,
-                file_type="pdf",
-                reasons=["NOT_A_CV", "INSUFFICIENT_CONTENT"],
-                flags=flags,
+                reasons=reasons,
+                flags=flags + class_res.flags,
                 extracted_text=full_text,
                 page_count=page_count,
             )
