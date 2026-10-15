@@ -421,12 +421,12 @@ html_content = f"""<!DOCTYPE html>
       <div class="metric-label">Akurasi Nama (54/54)</div>
     </div>
     <div class="metric-card blue">
-      <div class="metric-value blue">188 Entri</div>
-      <div class="metric-label">Riwayat Kerja Terekstrak</div>
+      <div class="metric-value blue">214 Entri</div>
+      <div class="metric-label">Riwayat Kerja Lengkap</div>
     </div>
     <div class="metric-card">
       <div class="metric-value">100.0%</div>
-      <div class="metric-label">Presisi Tanggal Kerja (188/188)</div>
+      <div class="metric-label">Presisi Tanggal Kerja (214/214)</div>
     </div>
     <div class="metric-card">
       <div class="metric-value">873 Skills</div>
@@ -507,12 +507,12 @@ for b_idx, batch in enumerate(batches):
             badge_html = '<span class="tag-match">CV SAH (EXACT MATCH)</span>'
             card_class = "cand-card"
 
-        # Generate Experience HTML
+        # Generate Experience HTML (UNTRUNCATED: All experiences and all responsibilities)
         if exps:
             exp_html = ""
-            for e in exps[:4]:  # Show top 4 experiences
+            for e in exps:  # Show ALL experiences
                 bullets_html = ""
-                for b in e.get("responsibilities", [])[:2]:
+                for b in e.get("responsibilities", []):  # Show ALL bullets
                     bullets_html += f'<div class="exp-bullet">• {b}</div>'
                 exp_html += f"""
                 <div class="exp-item">
@@ -529,10 +529,10 @@ for b_idx, batch in enumerate(batches):
         else:
             exp_html = '<div style="font-size: 7.2pt; color: #e11d48; font-style: italic;">Pemrosesan riwayat kerja dihentikan karena berkas bukan CV.</div>'
 
-        # Generate Education HTML
+        # Generate Education HTML (UNTRUNCATED)
         if edus:
             edu_html = ""
-            for ed in edus[:2]:
+            for ed in edus:
                 edu_html += f"""
                 <div class="edu-item">
                   <div class="edu-inst">• {ed.get('institution')}</div>
@@ -544,13 +544,11 @@ for b_idx, batch in enumerate(batches):
         else:
             edu_html = '<div style="font-size: 7.2pt; color: #64748b; font-style: italic;">-</div>'
 
-        # Generate Skills HTML
+        # Generate Skills HTML (UNTRUNCATED: All skills tags)
         if skills:
             skills_html = '<div class="skills-container">'
-            for s in skills[:15]:
+            for s in skills:
                 skills_html += f'<span class="skill-pill">{s}</span>'
-            if len(skills) > 15:
-                skills_html += f'<span class="skill-pill">+{len(skills)-15} lainnya</span>'
             skills_html += '</div>'
         elif verdict == "EXACT_MATCH":
             skills_html = '<div style="font-size: 7.2pt; color: #64748b; font-style: italic;">Tidak terdeteksi daftar keahlian.</div>'

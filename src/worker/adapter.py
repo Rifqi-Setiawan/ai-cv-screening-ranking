@@ -66,7 +66,7 @@ PRESENT_SET = {"sekarang", "saat ini", "kini", "present", "now", "current", "cur
 MONTHS_REGEX_STR = r"(?:jan(?:uari|uary)?|feb(?:ruari|ruary)?|mar(?:et|ch)?|apr(?:il)?|mei|may|jun(?:i|e)?|jul(?:i|y)?|agu(?:stus)?|aug(?:ust)?|sep(?:t(?:ember)?)?|okt(?:ober)?|oct(?:ober)?|nov(?:ember)?|des(?:ember)?|dec(?:ember)?)"
 
 RANGE_REGEX = re.compile(
-    rf"({MONTHS_REGEX_STR}\s+\d{{4}}|\d{{1,2}}/\d{{4}}|\b\d{{4}}\b)\s*(?:[-–—=]|s/d|sd|to|sampai|hingga|until)\s*({MONTHS_REGEX_STR}(?:\s+\d{{4}})?|\d{{1,2}}/\d{{4}}|\b\d{{4}}\b|sekarang|present|saat ini|current|now)",
+    rf"({MONTHS_REGEX_STR}(?:\s+\d{{4}})?|\d{{1,2}}/\d{{4}}|\b\d{{4}}\b)\s*(?:[-–—=]|s/d|sd|to|sampai|hingga|until)\s*({MONTHS_REGEX_STR}(?:\s+\d{{4}})?|\d{{1,2}}/\d{{4}}|\b\d{{4}}\b|sekarang|present|saat ini|current|now)",
     re.IGNORECASE,
 )
 
@@ -148,6 +148,10 @@ def parse_experiences(section_text: str, full_doc_text: str) -> list[dict[str, A
         m_y = re.search(r"\b(\d{4})\b", raw_start)
         if m_y:
             ref_y = m_y.group(1)
+        else:
+            m_y2 = re.search(r"\b(\d{4})\b", raw_end)
+            if m_y2:
+                ref_y = m_y2.group(1)
 
         start_date = norm_single_date(raw_start, is_end=False, ref_year=ref_y)
         end_date = norm_single_date(raw_end, is_end=True, ref_year=ref_y)
@@ -605,7 +609,34 @@ def extract_candidate_profile(content: bytes, filename: str) -> dict[str, Any]:
     if sk_lines:
         sk_text = "\n".join(sk_lines)
 
-    # Fallback for experience: if exp_text is empty, inspect other and summary
+    # Harvest any experiences in other that contain dates and professional job keywords
+    extra_exp_blocks = []
+    for text in sec_map.get("other", []):
+        if RANGE_REGEX.search(text) and any(
+            w in text.lower()
+            for w in [
+                "developer",
+                "engineer",
+                "analyst",
+                "manager",
+                "intern",
+                "magang",
+                "specialist",
+                "officer",
+                "consultant",
+                "staff",
+                "supervisor",
+                "freelance",
+                "trainer",
+                "volunteer",
+            ]
+        ):
+            extra_exp_blocks.append(text)
+
+    if extra_exp_blocks:
+        exp_text = exp_text + "\n" + "\n".join(extra_exp_blocks) if exp_text.strip() else "\n".join(extra_exp_blocks)
+
+    # Fallback for experience: if exp_text is still empty, inspect other and summary
     if not exp_text.strip():
         exp_fallbacks = []
         for extra_lbl in ("other", "summary"):
