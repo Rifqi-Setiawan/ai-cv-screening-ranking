@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from src.api.dependencies import get_current_user, get_job_for_tenant, require_role
 from src.domain.models import JobCreate, JobResponse, JobUpdate, User, UserRole
@@ -84,6 +85,7 @@ async def get_job(
 @router.get("/{job_id}/requirements")
 async def get_job_requirements(
     job_id: UUID,
+    response: Response,
     current_user: User = Depends(get_current_user),
 ) -> list[dict]:
     async with get_connection() as conn, conn.cursor() as cur:
@@ -102,6 +104,12 @@ async def get_job_requirements(
         rs = await cur.fetchone()
         if not rs:
             return []
+
+        if rs.get("category_weights"):
+            response.headers["X-Category-Weights"] = json.dumps(rs["category_weights"])
+        if rs.get("version"):
+            response.headers["X-Requirements-Version"] = str(rs["version"])
+        response.headers["Access-Control-Expose-Headers"] = "X-Category-Weights, X-Requirements-Version"
 
         await cur.execute(
             """

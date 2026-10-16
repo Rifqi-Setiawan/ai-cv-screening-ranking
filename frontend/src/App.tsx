@@ -54,9 +54,18 @@ Kualifikasi:
 
   // Requirements state
   const [requirements, setRequirements] = useState<Requirement[]>(INITIAL_REQUIREMENTS)
+  const [categoryWeights, setCategoryWeights] = useState<Record<string, number>>({
+    EXPERIENCE: 40,
+    HARD_SKILLS: 30,
+    EDUCATION_CERT: 15,
+    ACHIEVEMENT: 15,
+  })
   const [criteriaApproved, setCriteriaApproved] = useState<boolean>(true)
   const [criteriaVersion, setCriteriaVersion] = useState<number>(1)
   const [newReqDesc, setNewReqDesc] = useState('')
+  const [newReqCategory, setNewReqCategory] = useState<string>('HARD_SKILLS')
+  const [newReqImportance, setNewReqImportance] = useState<string>('MUST_HAVE')
+  const [newReqWeight, setNewReqWeight] = useState<number>(10)
   const [isCompiling, setIsCompiling] = useState<boolean>(false)
 
   // Auth & Backend sync state
@@ -102,6 +111,16 @@ Kualifikasi:
     })
     return flags
   }, [requirements])
+
+  // Dynamic sum of category weights
+  const totalCategoryWeight = useMemo(() => {
+    return (
+      Number(categoryWeights.EXPERIENCE || 0) +
+      Number(categoryWeights.HARD_SKILLS || 0) +
+      Number(categoryWeights.EDUCATION_CERT || 0) +
+      Number(categoryWeights.ACHIEVEMENT || 0)
+    )
+  }, [categoryWeights])
 
   // Filtered candidates for leaderboard
   const filteredCandidates = useMemo(() => {
@@ -184,6 +203,21 @@ Kualifikasi:
       const resReq = await fetch(`/api/v1/jobs/${jId}/requirements`, { headers: { ...getAuthHeaders() } })
       if (resReq.ok) {
         const reqList = await resReq.json()
+        const catWeightsHdr = resReq.headers.get('X-Category-Weights')
+        const verHdr = resReq.headers.get('X-Requirements-Version')
+        if (catWeightsHdr) {
+          try {
+            const parsedWeights = JSON.parse(catWeightsHdr)
+            if (parsedWeights && typeof parsedWeights === 'object') {
+              setCategoryWeights(parsedWeights)
+            }
+          } catch (e) {
+            console.warn('Failed parsing category weights header:', e)
+          }
+        }
+        if (verHdr) {
+          setCriteriaVersion(parseInt(verHdr) || 1)
+        }
         if (Array.isArray(reqList) && reqList.length > 0) {
           setRequirements(reqList)
           setCriteriaApproved(true)
@@ -647,7 +681,7 @@ Kualifikasi:
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
           body: JSON.stringify({
             requirement_set_version: criteriaVersion,
-            category_weights: { EXPERIENCE: 40, HARD_SKILLS: 30, EDUCATION_CERT: 15, ACHIEVEMENT: 15 },
+            category_weights: categoryWeights,
             requirements: requirements,
             status: 'DRAFT',
           }),
@@ -772,10 +806,10 @@ Kualifikasi:
     const newReq: Requirement = {
       requirement_id: newId,
       description: newReqDesc,
-      category: 'HARD_SKILLS',
-      kind: 'SKILL',
-      importance: 'NICE_TO_HAVE',
-      weight: 5,
+      category: newReqCategory,
+      kind: newReqCategory === 'EXPERIENCE' ? 'EXPERIENCE_DURATION' : newReqCategory === 'EDUCATION_CERT' ? 'EDUCATION' : 'SKILL',
+      importance: newReqImportance,
+      weight: newReqWeight,
       concepts: [],
       source_text: 'Ditambahkan secara manual oleh recruiter',
     }
@@ -832,6 +866,9 @@ Kualifikasi:
         const data = await res.json()
         if (data.requirements && Array.isArray(data.requirements) && data.requirements.length > 0) {
           setRequirements(data.requirements)
+          if (data.category_weights && typeof data.category_weights === 'object') {
+            setCategoryWeights(data.category_weights)
+          }
           setCriteriaVersion(1)
           setCriteriaApproved(false)
           setCurrentStep('requirements')
@@ -901,11 +938,16 @@ Kualifikasi:
       alert('Terdapat kriteria diskriminatif terlarang! Harap hapus kriteria tersebut sebelum menyetujui.')
       return
     }
+    if (totalCategoryWeight !== 100) {
+      if (!confirm(`Total distribusi bobot kategori saat ini ${totalCategoryWeight}% (bukan 100%). Tetap lanjutkan dan kunci versi kriteria ini?`)) {
+        return
+      }
+    }
     setCriteriaApproved(true)
     const nextVer = criteriaVersion + 1
     setCriteriaVersion(nextVer)
 
-    // Automatically persist approved requirements to backend
+    // Automatically persist approved requirements and custom category weights to backend
     if (currentJobId) {
       try {
         await fetch(`/api/v1/jobs/${currentJobId}/requirements/import-approved`, {
@@ -913,7 +955,7 @@ Kualifikasi:
           headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
           body: JSON.stringify({
             requirement_set_version: nextVer,
-            category_weights: { EXPERIENCE: 40, HARD_SKILLS: 30, EDUCATION_CERT: 15, ACHIEVEMENT: 15 },
+            category_weights: categoryWeights,
             requirements: requirements,
             status: 'DRAFT',
           }),
@@ -926,7 +968,7 @@ Kualifikasi:
         console.warn('Requirements persist error:', e)
       }
     }
-    alert(`Kriteria lowongan berhasil disetujui dan dikunci (Versi ${nextVer}).`)
+    alert(`Kriteria lowongan dan bobot penilaian berhasil disetujui dan dikunci (Versi ${nextVer}).`)
   }
 
   return (
@@ -1243,34 +1285,132 @@ Kualifikasi:
               )}
 
               {/* Category Weight Summary Bar */}
-              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4 flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-700">Distribusi Kategori:</span>
-                <div className="flex items-center space-x-4">
-                  <span className="text-blue-700 font-medium">Pengalaman: <strong>40%</strong></span>
-                  <span className="text-indigo-700 font-medium">Hard Skill: <strong>30%</strong></span>
-                  <span className="text-amber-700 font-medium">Pendidikan & Sertifikasi: <strong>15%</strong></span>
-                  <span className="text-purple-700 font-medium">Pencapaian & Kepemimpinan: <strong>15%</strong></span>
-                  <span className="font-mono font-bold text-slate-900 border-l border-slate-300 pl-3">Total: 100%</span>
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-5 text-xs shadow-2xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center space-x-2">
+                    <span className="font-bold text-slate-800">Distribusi Bobot Kategori (Total 100%):</span>
+                    {totalCategoryWeight !== 100 ? (
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-200 animate-pulse">
+                        ⚠️ Total: {totalCategoryWeight}% (Harus 100%)
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center space-x-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>Total 100% Seimbang</span>
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[11px] text-slate-500">Bobot kategori menentukan persentase porsi nilai akhir</span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-white p-2.5 rounded-lg border border-slate-200 flex items-center justify-between">
+                    <div>
+                      <div className="text-[11px] font-semibold text-blue-700">Pengalaman</div>
+                      <div className="text-[10px] text-slate-400">EXPERIENCE</div>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={categoryWeights.EXPERIENCE ?? 40}
+                        onChange={(e) => {
+                          const val = Math.max(0, Math.min(100, parseInt(e.target.value) || 0))
+                          setCategoryWeights({ ...categoryWeights, EXPERIENCE: val })
+                          setCriteriaApproved(false)
+                        }}
+                        className="w-12 px-1 py-1 text-center font-mono font-bold text-slate-900 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 rounded text-xs bg-slate-50 focus:bg-white focus:outline-hidden"
+                      />
+                      <span className="font-mono text-slate-400 text-xs">%</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-lg border border-slate-200 flex items-center justify-between">
+                    <div>
+                      <div className="text-[11px] font-semibold text-indigo-700">Hard Skill</div>
+                      <div className="text-[10px] text-slate-400">HARD_SKILLS</div>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={categoryWeights.HARD_SKILLS ?? 30}
+                        onChange={(e) => {
+                          const val = Math.max(0, Math.min(100, parseInt(e.target.value) || 0))
+                          setCategoryWeights({ ...categoryWeights, HARD_SKILLS: val })
+                          setCriteriaApproved(false)
+                        }}
+                        className="w-12 px-1 py-1 text-center font-mono font-bold text-slate-900 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 rounded text-xs bg-slate-50 focus:bg-white focus:outline-hidden"
+                      />
+                      <span className="font-mono text-slate-400 text-xs">%</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-lg border border-slate-200 flex items-center justify-between">
+                    <div>
+                      <div className="text-[11px] font-semibold text-amber-700">Pendidikan</div>
+                      <div className="text-[10px] text-slate-400">EDUCATION_CERT</div>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={categoryWeights.EDUCATION_CERT ?? 15}
+                        onChange={(e) => {
+                          const val = Math.max(0, Math.min(100, parseInt(e.target.value) || 0))
+                          setCategoryWeights({ ...categoryWeights, EDUCATION_CERT: val })
+                          setCriteriaApproved(false)
+                        }}
+                        className="w-12 px-1 py-1 text-center font-mono font-bold text-slate-900 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 rounded text-xs bg-slate-50 focus:bg-white focus:outline-hidden"
+                      />
+                      <span className="font-mono text-slate-400 text-xs">%</span>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-2.5 rounded-lg border border-slate-200 flex items-center justify-between">
+                    <div>
+                      <div className="text-[11px] font-semibold text-purple-700">Pencapaian</div>
+                      <div className="text-[10px] text-slate-400">ACHIEVEMENT</div>
+                    </div>
+                    <div className="flex items-center space-x-1">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={categoryWeights.ACHIEVEMENT ?? 15}
+                        onChange={(e) => {
+                          const val = Math.max(0, Math.min(100, parseInt(e.target.value) || 0))
+                          setCategoryWeights({ ...categoryWeights, ACHIEVEMENT: val })
+                          setCriteriaApproved(false)
+                        }}
+                        className="w-12 px-1 py-1 text-center font-mono font-bold text-slate-900 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 rounded text-xs bg-slate-50 focus:bg-white focus:outline-hidden"
+                      />
+                      <span className="font-mono text-slate-400 text-xs">%</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               {/* Editable Criteria Table */}
-              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <div className="overflow-x-auto border border-slate-200 rounded-lg shadow-2xs">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-100 text-slate-700 font-semibold uppercase tracking-wider border-b border-slate-200">
                     <tr>
                       <th className="py-2.5 px-3 w-12">ID</th>
                       <th className="py-2.5 px-3">Kriteria & Spesifikasi</th>
-                      <th className="py-2.5 px-3 w-36">Kategori</th>
-                      <th className="py-2.5 px-3 w-32">Tingkat</th>
-                      <th className="py-2.5 px-3 w-20 text-center">Bobot</th>
+                      <th className="py-2.5 px-3 w-40">Kategori</th>
+                      <th className="py-2.5 px-3 w-36">Tingkat</th>
+                      <th className="py-2.5 px-3 w-24 text-center">Bobot</th>
                       <th className="py-2.5 px-3">Kutipan Sumber di JD</th>
                       <th className="py-2.5 px-3 w-12 text-center">Aksi</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-normal">
+                  <tbody className="divide-y divide-slate-100 font-normal bg-white">
                     {requirements.map((r, i) => (
-                      <tr key={r.requirement_id} className="hover:bg-slate-50/80 transition-colors">
+                      <tr key={r.requirement_id || i} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-2.5 px-3 font-mono font-bold text-indigo-700">{r.requirement_id}</td>
                         <td className="py-2.5 px-3 font-medium text-slate-900">
                           <input
@@ -1282,28 +1422,73 @@ Kualifikasi:
                               setRequirements(updated)
                               setCriteriaApproved(false)
                             }}
-                            className="w-full bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 focus:outline-hidden py-0.5"
+                            className="w-full bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 focus:outline-hidden py-1"
                           />
                         </td>
                         <td className="py-2.5 px-3">
-                          <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
-                            {r.category}
-                          </span>
+                          <select
+                            value={
+                              r.category === 'EDUCATION_CERTIFICATION'
+                                ? 'EDUCATION_CERT'
+                                : r.category === 'ACHIEVEMENT_LEADERSHIP'
+                                ? 'ACHIEVEMENT'
+                                : r.category
+                            }
+                            onChange={(e) => {
+                              const updated = [...requirements]
+                              updated[i].category = e.target.value
+                              setRequirements(updated)
+                              setCriteriaApproved(false)
+                            }}
+                            className="w-full text-[11px] font-medium rounded-md px-2 py-1 bg-slate-50 hover:bg-white border border-slate-200 hover:border-slate-300 text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                          >
+                            <option value="EXPERIENCE">Pengalaman</option>
+                            <option value="HARD_SKILLS">Hard Skill</option>
+                            <option value="EDUCATION_CERT">Pendidikan & Sertifikasi</option>
+                            <option value="ACHIEVEMENT">Pencapaian & Leadership</option>
+                          </select>
                         </td>
                         <td className="py-2.5 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                          <select
+                            value={r.importance}
+                            onChange={(e) => {
+                              const updated = [...requirements]
+                              updated[i].importance = e.target.value
+                              setRequirements(updated)
+                              setCriteriaApproved(false)
+                            }}
+                            className={`w-full text-[11px] font-bold rounded-md px-2 py-1 border transition-colors cursor-pointer focus:outline-hidden focus:ring-1 focus:ring-indigo-500 ${
                               r.importance === 'MUST_HAVE'
-                                ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
                                 : r.importance === 'STRONG_PREFERENCE'
-                                ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                                : 'bg-slate-100 text-slate-600'
+                                ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                                : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
                             }`}
                           >
-                            {r.importance === 'MUST_HAVE' ? 'Wajib' : r.importance === 'STRONG_PREFERENCE' ? 'Diutamakan' : 'Nilai Tambah'}
-                          </span>
+                            <option value="MUST_HAVE">🔴 Wajib</option>
+                            <option value="STRONG_PREFERENCE">🟡 Diutamakan</option>
+                            <option value="NICE_TO_HAVE">⚪ Nilai Tambah</option>
+                          </select>
                         </td>
-                        <td className="py-2.5 px-3 text-center font-mono font-bold">{r.weight}%</td>
+                        <td className="py-2.5 px-3 text-center">
+                          <div className="flex items-center justify-center space-x-1">
+                            <input
+                              type="number"
+                              min="1"
+                              max="100"
+                              value={r.weight}
+                              onChange={(e) => {
+                                const val = parseFloat(e.target.value) || 0
+                                const updated = [...requirements]
+                                updated[i].weight = val
+                                setRequirements(updated)
+                                setCriteriaApproved(false)
+                              }}
+                              className="w-14 px-1 py-1 text-center font-mono font-bold text-slate-900 border border-slate-200 hover:border-slate-300 focus:border-indigo-500 rounded text-xs bg-slate-50 focus:bg-white focus:outline-hidden"
+                            />
+                            <span className="font-mono text-slate-400 text-xs">%</span>
+                          </div>
+                        </td>
                         <td className="py-2.5 px-3 text-slate-500 italic max-w-xs truncate" title={r.source_text}>
                           "{r.source_text || '-'}"
                         </td>
@@ -1326,20 +1511,51 @@ Kualifikasi:
               </div>
 
               {/* Add Manual Criteria Box */}
-              <div className="mt-4 pt-4 border-t border-slate-100 flex items-center space-x-3">
+              <div className="mt-4 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
                 <input
                   type="text"
-                  placeholder="Tambah kriteria manual (contoh: Memahami arsitektur event-driven)..."
+                  placeholder="Kriteria baru (contoh: Memahami arsitektur event-driven)..."
                   value={newReqDesc}
                   onChange={(e) => setNewReqDesc(e.target.value)}
                   className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                 />
+                <select
+                  value={newReqCategory}
+                  onChange={(e) => setNewReqCategory(e.target.value)}
+                  className="px-2.5 py-2 border border-slate-300 rounded-lg text-xs bg-white text-slate-700 focus:outline-hidden"
+                >
+                  <option value="HARD_SKILLS">Hard Skill</option>
+                  <option value="EXPERIENCE">Pengalaman</option>
+                  <option value="EDUCATION_CERT">Pendidikan</option>
+                  <option value="ACHIEVEMENT">Pencapaian</option>
+                </select>
+                <select
+                  value={newReqImportance}
+                  onChange={(e) => setNewReqImportance(e.target.value)}
+                  className="px-2.5 py-2 border border-slate-300 rounded-lg text-xs bg-white text-slate-700 focus:outline-hidden"
+                >
+                  <option value="MUST_HAVE">🔴 Wajib</option>
+                  <option value="STRONG_PREFERENCE">🟡 Diutamakan</option>
+                  <option value="NICE_TO_HAVE">⚪ Nilai Tambah</option>
+                </select>
+                <div className="flex items-center space-x-1 shrink-0">
+                  <span className="text-[11px] text-slate-500 font-medium">Bobot:</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={newReqWeight}
+                    onChange={(e) => setNewReqWeight(parseInt(e.target.value) || 10)}
+                    className="w-14 px-1.5 py-2 border border-slate-300 rounded-lg text-xs font-mono font-bold text-center bg-white focus:outline-hidden"
+                  />
+                  <span className="text-xs text-slate-400 font-mono">%</span>
+                </div>
                 <button
                   onClick={handleAddRequirement}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition-colors"
+                  className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-semibold rounded-lg flex items-center justify-center space-x-1.5 transition-colors shrink-0 shadow-2xs"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Tambah Kriteria Manual</span>
+                  <span>Tambah</span>
                 </button>
               </div>
             </div>
