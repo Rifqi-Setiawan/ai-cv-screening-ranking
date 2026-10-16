@@ -601,47 +601,53 @@ Kualifikasi:
     }
   }
 
-  const fetchLatestLeaderboard = async (jId?: string) => {
+  const fetchLatestLeaderboard = async (jId?: string, maxAttempts = 6) => {
     try {
       const targetJobId = jId || (await ensureJobExists())
       if (!targetJobId) return
-      const res = await fetch(`/api/v1/jobs/${targetJobId}/screenings/latest`, {
-        headers: { ...getAuthHeaders() },
-      })
-      if (res.ok) {
-        const data = await res.json()
-        if (data.latest_run && data.rankings && data.rankings.length > 0) {
-          setCurrentRunId(data.screening_run_id)
-          const mappedCandidates: CandidateDetail[] = data.rankings.map((r: any, idx: number) => ({
-            rank: r.rank || idx + 1,
-            cv_id: r.cv_id || r.candidate_id,
-            file_name: r.file_name,
-            blind_id: `C-${String(idx + 1).padStart(4, '0')}`,
-            real_name: r.file_name.replace(/\.[^/.]+$/, '').replace(/_/g, ' '),
-            revealed: false,
-            final_score: typeof r.final_score === 'number' ? r.final_score : parseFloat(r.final_score) || 0,
-            raw_score: typeof r.raw_score === 'number' ? r.raw_score : parseFloat(r.raw_score) || 0,
-            band: r.band,
-            recommendation: r.recommendation,
-            category_breakdown: r.category_breakdown || {},
-            metrics: {},
-            flags: r.flags || [],
-            quality_status: r.quality_status || 'READY',
-            eligibility_status: r.eligibility_status || 'ELIGIBLE',
-            eligibility_reasons: r.eligibility_reasons || [],
-            requirement_states: r.requirement_states || {},
-            evidence: {},
-            explanation: {
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const res = await fetch(`/api/v1/jobs/${targetJobId}/screenings/latest`, {
+          headers: { ...getAuthHeaders() },
+        })
+        if (res.ok) {
+          const data = await res.json()
+          if (data.latest_run && data.rankings && data.rankings.length > 0) {
+            setCurrentRunId(data.screening_run_id || data.latest_run.id)
+            const mappedCandidates: CandidateDetail[] = data.rankings.map((r: any, idx: number) => ({
+              rank: r.rank || idx + 1,
+              cv_id: r.cv_id || r.candidate_id,
+              file_name: r.file_name,
+              blind_id: `C-${String(idx + 1).padStart(4, '0')}`,
+              real_name: r.file_name.replace(/\.[^/.]+$/, '').replace(/_/g, ' '),
+              revealed: false,
+              final_score: typeof r.final_score === 'number' ? r.final_score : parseFloat(r.final_score) || 0,
+              raw_score: typeof r.raw_score === 'number' ? r.raw_score : parseFloat(r.raw_score) || 0,
               band: r.band,
               recommendation: r.recommendation,
-              final_score: typeof r.final_score === 'number' ? r.final_score : parseFloat(r.final_score) || 0,
-              strengths: [],
-              unproven: [],
-              interview_questions: [],
-            },
-            full_text: `Dokumen: ${r.file_name}\nStatus Ingestion: ${r.quality_status || 'READY'}\nSkor Evaluasi: ${r.final_score}`,
-          }))
-          setCandidates(mappedCandidates)
+              category_breakdown: r.category_breakdown || {},
+              metrics: {},
+              flags: r.flags || [],
+              quality_status: r.quality_status || 'READY',
+              eligibility_status: r.eligibility_status || 'ELIGIBLE',
+              eligibility_reasons: r.eligibility_reasons || [],
+              requirement_states: r.requirement_states || {},
+              evidence: {},
+              explanation: {
+                band: r.band,
+                recommendation: r.recommendation,
+                final_score: typeof r.final_score === 'number' ? r.final_score : parseFloat(r.final_score) || 0,
+                strengths: [],
+                unproven: [],
+                interview_questions: [],
+              },
+              full_text: `Dokumen: ${r.file_name}\nStatus Ingestion: ${r.quality_status || 'READY'}\nSkor Evaluasi: ${r.final_score}`,
+            }))
+            setCandidates(mappedCandidates)
+            return
+          }
+        }
+        if (attempt < maxAttempts) {
+          await new Promise((resolve) => setTimeout(resolve, 1000))
         }
       }
     } catch (e) {
@@ -692,8 +698,8 @@ Kualifikasi:
         console.warn('Requirements import note:', e)
       }
 
-      // Trigger screening run
-      const res = await fetch(`/api/v1/jobs/${jId}/screenings`, {
+      // Trigger screening run synchronously for immediate completion
+      const res = await fetch(`/api/v1/jobs/${jId}/screenings?sync=true`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ use_verifier: false }),

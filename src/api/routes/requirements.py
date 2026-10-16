@@ -324,6 +324,23 @@ async def approve_requirements(
         )
         set_row = await cur.fetchone()
         if not set_row:
+            await cur.execute(
+                """
+                SELECT id, version, status, approved_at FROM requirement_sets
+                WHERE job_id = %s AND tenant_id = %s AND status = 'APPROVED'
+                ORDER BY version DESC LIMIT 1
+                """,
+                (job_id, current_user.tenant_id),
+            )
+            approved_existing = await cur.fetchone()
+            if approved_existing:
+                return {
+                    "requirement_set_id": str(approved_existing["id"]),
+                    "version": approved_existing["version"],
+                    "approved_at": str(approved_existing["approved_at"]),
+                    "status": "APPROVED",
+                    "embedded_count": 0,
+                }
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="No draft requirement set found to approve"
             )
