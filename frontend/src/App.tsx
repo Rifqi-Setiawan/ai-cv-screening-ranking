@@ -97,16 +97,13 @@ Kualifikasi:
   const [activeDrawerTab, setActiveDrawerTab] = useState<'ringkasan' | 'kartu_skor' | 'cv_asli' | 'riwayat'>('ringkasan')
   const [selectedQuoteToHighlight, setSelectedQuoteToHighlight] = useState<string | null>(null)
 
-  // Policy Linter for prohibited criteria
+  // Policy Linter for prohibited criteria (physical appearance only; religion & gender are permitted)
   const prohibitedFlags = useMemo(() => {
     const flags: string[] = []
     requirements.forEach((r) => {
       const txt = (r.description + ' ' + (r.source_text || '')).toLowerCase()
-      if (/menarik|penampilan|good looking|tinggi\s+badan|berat\s+badan/.test(txt)) {
+      if (/menarik|penampilan|good looking|foto\s+full\s+body|proporsional/.test(txt)) {
         flags.push(`Kriteria penampilan fisik (${r.requirement_id}): Tidak boleh digunakan`)
-      }
-      if (/\bagama\b|\bmuslim\b|\bkristen\b|\bkatolik\b|\bhindu\b|\bbuddha\b/.test(txt)) {
-        flags.push(`Kriteria agama (${r.requirement_id}): Tidak boleh digunakan`)
       }
     })
     return flags

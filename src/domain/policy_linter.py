@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from src.infrastructure.config import settings
+
 PROHIBITED_RULES = {
     "appearance": [
         r"berpenampilan\s+menarik",
@@ -90,12 +92,16 @@ def lint_text(text: str) -> dict[str, Any]:
     text_lower = text.lower()
 
     for category, patterns in PROHIBITED_RULES.items():
+        if category == "religion" and settings.ALLOW_RELIGION_CRITERIA:
+            continue
         for pat in patterns:
             if re.search(pat, text_lower):
                 prohibited_flags.append(f"PROHIBITED_{category.upper()}")
                 break
 
     for category, patterns in ADMIN_DEMOGRAPHIC_RULES.items():
+        if category == "gender" and settings.ALLOW_GENDER_CRITERIA:
+            continue
         for pat in patterns:
             if re.search(pat, text_lower):
                 admin_flags.append(f"ADMIN_ONLY_{category.upper()}")
