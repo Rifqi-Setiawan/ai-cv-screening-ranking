@@ -459,6 +459,7 @@ field:computing:
   aliases:
   - teknik informatika
   - informatika
+  - informatics
   - ilmu komputer
   - computer science
   - sistem informasi
@@ -467,6 +468,39 @@ field:computing:
   - software engineering
   - teknik komputer
   - computer engineering
+  - teknologi informasi
+  - information technology
+  - sains data
+  - data science
+  related:
+  - matematika
+  - mathematics
+  - math
+  - statistika
+  - statistics
+  - teknik elektro
+  - electrical engineering
+  - teknologi komputer
+field:mathematics:
+  label: Matematika & Sains Kuantitatif
+  aliases:
+  - matematika
+  - mathematics
+  - math
+  - statistika
+  - statistics
+  - aktuaria
+  - actuarial science
+  - data science
+  - sains data
+  related:
+  - informatika
+  - informatics
+  - teknik informatika
+  - computer science
+  - ilmu komputer
+  - sistem informasi
+  - software engineering
 field:hr:
   label: SDM
   aliases:

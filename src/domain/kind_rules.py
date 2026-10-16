@@ -393,18 +393,22 @@ def eval_education(
 
     min_level = params.get("min_level")
     if not min_level:
-        if "d3" in desc_text and "s1" in desc_text:
+        if "d3" in desc_text and ("s1" in desc_text or "bachelor" in desc_text or "sarjana" in desc_text):
             min_level = "D3"
-        elif "s1" in desc_text:
+        elif any(deg in desc_text for deg in ["s1", "bachelor", "sarjana", "s-1", "undergraduate"]):
             min_level = "S1"
-        elif "d3" in desc_text:
+        elif any(deg in desc_text for deg in ["s2", "master", "magister", "postgraduate"]):
+            min_level = "S2"
+        elif any(deg in desc_text for deg in ["d3", "diploma 3", "diploma iii"]):
             min_level = "D3"
-        elif "d4" in desc_text:
+        elif any(deg in desc_text for deg in ["d4", "diploma 4", "diploma iv", "sarjana terapan"]):
             min_level = "D4"
-        elif "sma" in desc_text or "smk" in desc_text:
+        elif any(deg in desc_text for deg in ["sma", "smk", "high school"]):
             min_level = "SMA"
         else:
             min_level = "S1"
+
+    allow_related = any(r_term in desc_text for r_term in ["related", "terkait", "serumpun", "relevan", "sejenis"])
 
     tax = get_taxonomy()
     strong_fields = [f.lower() for f in params.get("strong_fields", [])]
@@ -414,14 +418,16 @@ def eval_education(
         for field_id, field_skill in tax.skills.items():
             if field_id.startswith("field:"):
                 f_name = field_id.replace("field:", "")
-                if any(f_name in c for c in concepts) or any(term in desc_text for term in field_skill.aliases):
-                    strong_fields.extend([a.lower() for a in field_skill.aliases])
-                    partial_fields.extend([r.lower() for r in field_skill.related])
+                aliases = [a.lower() for a in getattr(field_skill, "aliases", [])]
+                related = [r.lower() for r in getattr(field_skill, "related", [])]
+                if any(f_name in c for c in concepts) or any(term in desc_text for term in aliases):
+                    strong_fields.extend(aliases)
+                    partial_fields.extend(related)
 
     if not strong_fields:
         for field_id, field_skill in tax.skills.items():
             if field_id.startswith("field:"):
-                strong_fields.extend([a.lower() for a in field_skill.aliases])
+                strong_fields.extend([a.lower() for a in getattr(field_skill, "aliases", [])])
 
     if not partial_fields:
         partial_fields = ["teknik komputer", "matematika", "rekayasa", "arsitektur", "teknik pengelasan", "welding"]
@@ -441,7 +447,7 @@ def eval_education(
     # Also search in profile summary if education list is empty
     if not edu_list:
         summary_txt = profile.get("summary", "")
-        for deg in ["s1", "d3", "d4", "sarjana", "diploma"]:
+        for deg in ["s1", "d3", "d4", "sarjana", "diploma", "bachelor"]:
             if deg in summary_txt.lower():
                 edu_list.append({"level": deg.upper(), "degree_raw": summary_txt[:150], "institution": ""})
                 break
@@ -454,7 +460,7 @@ def eval_education(
         is_strong_f = any(f in comb for f in strong_fields)
         is_partial_f = any(f in comb for f in partial_fields)
 
-        if is_strong_f and lvl_r >= min_r:
+        if (is_strong_f or (is_partial_f and allow_related)) and lvl_r >= min_r:
             state = "STRONG"
             evidence.append({"quote": comb[:100], "context": "education", "verified": True})
             return state, 0.95, {}, evidence, []
